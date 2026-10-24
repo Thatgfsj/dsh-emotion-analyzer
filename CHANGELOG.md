@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-10-25
+
+### Added
+
+- **模型注册表与模型管理**（#39）：4 个预设——Horizon multilingual-emotions-small（默认，Apache-2.0，141M，36 语言，28 标签，官方 ONNX int8）、Horizon base（308M）、legacy tabularisai（11 标签，兼容旧行为）、Johnson8187 Chinese-Emotion-Small（中文 8 标签，需本地导出）。
+- **模型下载/校验/切换**：流式下载到 `$DSH_HOME/emotion-analyzer/models/<id>/`，`.part` 回滚、字节数校验、进度、取消、并发去重、legacy 删除保护；未下载默认模型回退 legacy（不阻塞聊天）。
+- **可插拔映射 profile**（#39）：`legacy-11` / `go-emotions-28` / `zh-8`；projection 记录携带 `profileId`（record v2 / stateVersion 4），跨模型切换后历史仍可正确重放。
+- **设置页模型管理 UI**（#40）：当前模型卡片、预设卡片（下载进度/取消/删除/切换）、测试一句（7 维分数/耗时/modelId）、needsExport/fallback/错误提示；Host API `/api/emotion-analyzer/v1/{state,model/select,model/download,model/{id},test}`（Connection 鉴权）。
+- 文档 `docs/models.md`（预设/许可/体积/映射/下载路径/回退/API）。
+
+### Changed
+
+- **默认模型改为 Horizon small**（#38 决策）：Apache-2.0 替代 CC-BY-NC，原生 confusion 标签；40 条中英验证 38/40 = 95%，CPU INT8 中位 19.3ms。
+- legacy 11 标签模型保留为预设，历史会话/旧 projection 继续可读。
+- `scripts/build.mjs` 支持 `lib/models/*` 嵌套 specifier；文档同步 README/architecture/calibration/e2e/model-export。
+
+### Known limitations
+
+- Horizon 初版 28→7 映射有 2 条 miss（pleasant→sad、angry→sadness），未特判。
+- 中文预设只有注册/profile，ONNX 导出脚本待后续；下载完整性目前只校验存在+字节数（无 sha256）。
+- `DELETE /model/{id}` 路由已单测；真实 DSH 页面尚未完成设置页模型区端到端截图（路由单测通过）。
+
 ## [0.1.3] - 2026-10-24
 
 ### Changed
