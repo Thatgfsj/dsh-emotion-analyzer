@@ -102,9 +102,9 @@ export function createSettingsRow(React: any): (props?: Record<string, unknown>)
 export function createSettingsSection(React: any): (props?: Record<string, unknown>) => any {
   const SettingsModels = createSettingsModels(React)
   const buttonStyle = {
-    border: '1px solid var(--dsw-alias-border-l2, rgba(15,23,42,.15))',
+    border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.25))',
     background: 'var(--dsw-alias-bg-base, #fff)',
-    color: 'var(--dsw-alias-label-primary, #111827)',
+    color: 'var(--dsw-alias-label-primary, inherit)',
     borderRadius: '8px',
     padding: '6px 12px',
     fontSize: '13px',
@@ -127,14 +127,14 @@ export function createSettingsSection(React: any): (props?: Record<string, unkno
     return React.createElement(
       'div',
       { 'data-emotion-analyzer-section': '', style: { display: 'flex', flexDirection: 'column', gap: '18px', maxWidth: '760px' } },
-      React.createElement('p', { style: { margin: 0, fontSize: '13px', lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary, #4b5563)' } },
+      React.createElement('p', { style: { margin: 0, fontSize: '13px', lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary, inherit)' } },
         '对主模型每条回复做本地情绪打分，并在页面右上角显示紧凑 emoji 徽章。悬浮框的显示/隐藏只由本页开关控制。'),
       React.createElement(
         'label',
         { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' } },
         React.createElement('span', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
           React.createElement('span', { style: { fontWeight: 500 } }, '显示情绪监测悬浮框'),
-          React.createElement('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary, #6b7280)' } }, '关闭后仍然计分，只是不显示浮层。')),
+          React.createElement('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary, inherit)' } }, '关闭后仍然计分，只是不显示浮层。')),
         React.createElement('input', {
           type: 'checkbox',
           checked: visible,
@@ -169,7 +169,7 @@ export function createSettingsSection(React: any): (props?: Record<string, unkno
           },
         }, '清除趋势历史'),
       ),
-      React.createElement('p', { style: { margin: 0, fontSize: '12px', color: 'var(--dsw-alias-label-tertiary, #6b7280)' } },
+      React.createElement('p', { style: { margin: 0, fontSize: '12px', color: 'var(--dsw-alias-label-tertiary, inherit)' } },
         '悬浮框位置、折叠状态与最近 30 轮趋势保存在浏览器 localStorage；清除趋势只会影响当前浏览器的历史曲线。'),
       React.createElement(SettingsModels),
     )

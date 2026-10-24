@@ -67,10 +67,11 @@ export function formatModelMeta(preset: ModelPreset | null | undefined): string 
 export function modelBadges(preset: ModelPreset | null | undefined): string[] {
   if (!preset) return []
   const badges: string[] = []
+  if (preset.default) badges.push('默认')
   if (preset.recommended) badges.push('推荐')
-  if (preset.legacy) badges.push('legacy')
-  if (preset.fallback) badges.push('兼容回退')
-  if (preset.needsExport && !preset.installed) badges.push('需本地导出')
+  if (preset.legacy) badges.push('回退默认')
+  if (preset.languageCodes && preset.languageCodes.length === 1 && preset.languageCodes[0] === 'zh') badges.push('中文')
+  if (preset.needsExport && !preset.installed) badges.push('需本地导出（建议大肥鱼帮助）')
   if (preset.installed) badges.push('已安装')
   return badges
 }
@@ -149,15 +150,15 @@ const styles = {
     gap: '14px',
     marginTop: '4px',
     paddingTop: '18px',
-    borderTop: '1px solid var(--dsw-alias-border-l1, rgba(15,23,42,.12))',
+    borderTop: '1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.22))',
   },
   header: { display: 'flex', flexDirection: 'column', gap: '4px' },
-  title: { margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--dsw-alias-label-primary, #111827)' },
+  title: { margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--dsw-alias-label-primary, inherit)' },
   description: {
     margin: 0,
     fontSize: '12px',
     lineHeight: 1.6,
-    color: 'var(--dsw-alias-label-tertiary, #6b7280)',
+    color: 'var(--dsw-alias-label-tertiary, inherit)',
   },
   card: {
     display: 'flex',
@@ -165,13 +166,13 @@ const styles = {
     gap: '10px',
     padding: '14px',
     borderRadius: '12px',
-    border: '1px solid var(--dsw-alias-border-l2, rgba(15,23,42,.12))',
-    background: 'var(--dsw-alias-bg-l1, rgba(255,255,255,.6))',
+    border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.22))',
+    background: 'var(--dsw-alias-bg-layer-1, rgba(127,127,127,.08))',
   },
   row: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' },
   spread: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' },
-  modelName: { fontSize: '14px', fontWeight: 600, color: 'var(--dsw-alias-label-primary, #111827)' },
-  meta: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary, #6b7280)', lineHeight: 1.5 },
+  modelName: { fontSize: '14px', fontWeight: 600, color: 'var(--dsw-alias-label-primary, inherit)' },
+  meta: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary, inherit)', lineHeight: 1.5 },
   badge: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -179,8 +180,8 @@ const styles = {
     borderRadius: '999px',
     fontSize: '11px',
     lineHeight: '18px',
-    background: 'var(--dsw-alias-fill-l1, rgba(15,23,42,.06))',
-    color: 'var(--dsw-alias-label-secondary, #4b5563)',
+    background: 'var(--dsw-alias-bg-mask-1, rgba(127,127,127,.14))',
+    color: 'var(--dsw-alias-label-secondary, inherit)',
     whiteSpace: 'nowrap',
   },
   badgeAccent: {
@@ -199,7 +200,7 @@ const styles = {
     borderRadius: '10px',
     fontSize: '12px',
     lineHeight: 1.6,
-    color: 'var(--dsw-alias-label-error, #b91c1c)',
+    color: 'var(--dsw-alias-label-error, inherit)',
     background: 'var(--dsw-alias-bg-mask-2, rgba(229,72,77,.08))',
     border: '1px solid var(--dsw-alias-border-l2, rgba(229,72,77,.25))',
   },
@@ -208,20 +209,20 @@ const styles = {
     borderRadius: '10px',
     fontSize: '12px',
     lineHeight: 1.6,
-    color: 'var(--dsw-alias-label-secondary, #4b5563)',
-    background: 'var(--dsw-alias-bg-l2, rgba(15,23,42,.04))',
-    border: '1px solid var(--dsw-alias-border-l2, rgba(15,23,42,.12))',
+    color: 'var(--dsw-alias-label-secondary, inherit)',
+    background: 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.12))',
+    border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.22))',
   },
   warning: {
     margin: 0,
     fontSize: '12px',
     lineHeight: 1.6,
-    color: 'var(--dsw-alias-label-secondary, #4b5563)',
+    color: 'var(--dsw-alias-label-secondary, inherit)',
   },
   button: {
-    border: '1px solid var(--dsw-alias-border-l2, rgba(15,23,42,.15))',
+    border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.25))',
     background: 'var(--dsw-alias-bg-base, #fff)',
-    color: 'var(--dsw-alias-label-primary, #111827)',
+    color: 'var(--dsw-alias-label-primary, inherit)',
     borderRadius: '8px',
     padding: '6px 12px',
     fontSize: '13px',
@@ -230,7 +231,7 @@ const styles = {
   primaryButton: {
     border: '1px solid var(--dsw-alias-button-primary-fill, #4f7cff)',
     background: 'var(--dsw-alias-button-primary-fill, #4f7cff)',
-    color: 'var(--dsw-alias-label-primary-inverted, #fff)',
+    color: 'var(--dsw-alias-label-primary-foreground, #fff)',
     borderRadius: '8px',
     padding: '6px 14px',
     fontSize: '13px',
@@ -239,7 +240,7 @@ const styles = {
   dangerButton: {
     border: '1px solid var(--dsw-alias-border-l2, rgba(229,72,77,.4))',
     background: 'transparent',
-    color: 'var(--dsw-alias-label-error, #b91c1c)',
+    color: 'var(--dsw-alias-label-error, inherit)',
     borderRadius: '8px',
     padding: '6px 12px',
     fontSize: '13px',
@@ -249,7 +250,7 @@ const styles = {
     width: '100%',
     height: '6px',
     borderRadius: '999px',
-    background: 'var(--dsw-alias-fill-l1, rgba(15,23,42,.08))',
+    background: 'var(--dsw-alias-bg-mask-1, rgba(127,127,127,.18))',
     overflow: 'hidden',
   },
   progressFill: {
@@ -262,7 +263,7 @@ const styles = {
     flex: '1 1 140px',
     height: '6px',
     borderRadius: '999px',
-    background: 'var(--dsw-alias-fill-l1, rgba(15,23,42,.08))',
+    background: 'var(--dsw-alias-bg-mask-1, rgba(127,127,127,.18))',
     overflow: 'hidden',
   },
   fill: { height: '100%', borderRadius: '999px' },
@@ -272,9 +273,9 @@ const styles = {
     resize: 'vertical',
     padding: '8px 10px',
     borderRadius: '8px',
-    border: '1px solid var(--dsw-alias-border-l2, rgba(15,23,42,.15))',
+    border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.25))',
     background: 'var(--dsw-alias-bg-base, #fff)',
-    color: 'var(--dsw-alias-label-primary, #111827)',
+    color: 'var(--dsw-alias-label-primary, inherit)',
     fontSize: '13px',
     fontFamily: 'inherit',
     boxSizing: 'border-box',
@@ -476,7 +477,7 @@ export function createSettingsModels(
           ? React.createElement(
               'p',
               { style: styles.warning },
-              '中文模型需要本地导出后才能使用：运行 python3 scripts/export_model.py 生成 ' +
+              '中文模型需要本地导出（建议大肥鱼帮助）：运行 python3 scripts/export_model.py 生成 ' +
                 (preset.expectedExportPath ?? 'assets/model.onnx') +
                 '，然后刷新本页。',
             )
@@ -583,7 +584,7 @@ export function createSettingsModels(
           'div',
           { key: 'state-warning', style: styles.info },
           state.fallback ? '当前处于兼容回退模式。' : '',
-          state.needsExport ? ' 部分模型（如中文模型）需要本地导出。' : '',
+          state.needsExport ? ' 部分模型（如中文模型）需要本地导出（建议大肥鱼帮助）。' : '',
         ),
       )
     }

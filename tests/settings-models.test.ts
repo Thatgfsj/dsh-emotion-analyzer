@@ -61,13 +61,14 @@ test('formatModelMeta: language/label/size/licence line', () => {
 test('modelBadges: recommended/legacy/fallback/export/installed', () => {
   assert.deepEqual(modelBadges(preset()), ['推荐', '已安装'])
   assert.deepEqual(modelBadges(preset({ recommended: false })), ['已安装'])
+  assert.deepEqual(modelBadges(preset({ default: true, recommended: false })), ['默认', '已安装'])
   assert.deepEqual(
     modelBadges(preset({ recommended: false, legacy: true, fallback: true, installed: false })),
-    ['legacy', '兼容回退'],
+    ['回退默认'],
   )
   assert.deepEqual(
     modelBadges(preset({ recommended: false, installed: false, needsExport: true })),
-    ['需本地导出'],
+    ['需本地导出（建议大肥鱼帮助）'],
   )
   assert.deepEqual(modelBadges(null), [])
 })

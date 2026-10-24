@@ -67,6 +67,9 @@ export interface ModelStateEntry {
   readonly progress: { readonly receivedBytes: number; readonly totalBytes: number; readonly percent: number }
   readonly error: string | null
   readonly needsExport: boolean
+  /** UI role badges. */
+  readonly default: boolean
+  readonly recommended: boolean
 }
 
 /** 一轮打分的原始结果（投影 fold 需要 raw + profileId）。 */
@@ -284,6 +287,8 @@ export class EmotionModelService {
       progress: status.progress,
       error: status.error ?? null,
       needsExport: status.needsExport,
+      default: status.preset.default === true,
+      recommended: status.preset.recommended === true,
     }
   }
 

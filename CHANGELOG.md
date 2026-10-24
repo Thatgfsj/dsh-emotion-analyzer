@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] - 2026-10-25
+
+### Fixed
+
+- 插件设置区深色/浅色模式：修正无效 token 名（`bg-l1/bg-l2/fill-l1/label-primary-inverted` → `bg-layer-1/2/bg-mask-1/label-primary-foreground`），fallback 从硬编码浅色改为透明/继承/中性灰；插件详情页与 Settings 两处共用同一套 token（#52）。
+
+### Changed
+
+- 预设模型按用户指定展示：**Horizon Small（默认）**、**Horizon Base（推荐）**、**tabularisai（回退默认）**、**Chinese Emotion（中文）**；中文模型标记「需本地导出（建议大肥鱼帮助）」（#53）。
+
 ## [0.2.1] - 2026-10-25
 
 ### Fixed
