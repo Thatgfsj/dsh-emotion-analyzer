@@ -43,14 +43,14 @@ import {
 
 const ALL_ZERO = normalizeScores(null)
 
-test('emotion metadata: seven dimensions with expected emoji + colours', () => {
+test('emotion metadata: eight dimensions with expected emoji + colours', () => {
   assert.deepEqual(
     [...EMOTION_DIMENSIONS],
-    ['happy', 'pleasant', 'sad', 'angry', 'anxious', 'unwell', 'neutral'],
+    ['happy', 'pleasant', 'sad', 'angry', 'anxious', 'unwell', 'confused', 'neutral'],
   )
   assert.deepEqual(
     EMOTION_DIMENSIONS.map((dimension) => EMOTION_META[dimension].emoji),
-    ['😊', '🙂', '😢', '😠', '😟', '🤕', '😐'],
+    ['😊', '🙂', '😢', '😠', '😟', '🤕', '🤔', '😐'],
   )
   const colours = new Set<string>()
   for (const dimension of EMOTION_DIMENSIONS) {

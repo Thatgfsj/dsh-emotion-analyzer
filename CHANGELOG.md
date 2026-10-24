@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- 新增统一维度 **confused（疑问）**：以模型 `surprise` 作为代理（当前模型没有 confusion/uncertainty 标签），悬浮框新增「疑问 🤔」分数条与趋势线。
+- 新增 **Settings → 情绪分析器** 设置页：显示/隐藏悬浮框、立即显示、重置悬浮框位置。
+- 关闭悬浮框后的 💗 重开按钮移动位置并加大可发现性；修复重新显示时 widget 自身 closed 持久化导致仍然隐藏的问题。
+
+### Changed
+
+- Session projection `stateVersion` 1 → 2（映射语义变化，旧持久化缓存会重放日志）。
+- 重新导出/校验脚本的映射表同步 confused。
+
 ## [0.1.0] - 2026-10-24
 
 ### Added

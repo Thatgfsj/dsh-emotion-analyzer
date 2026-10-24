@@ -53,6 +53,7 @@ const PROFILES: Record<DemoKind, EmotionScores> = {
     angry: 0.02,
     anxious: 0.1,
     unwell: 0.05,
+    confused: 0.06,
     neutral: 0.16,
   },
   sad: {
@@ -62,6 +63,7 @@ const PROFILES: Record<DemoKind, EmotionScores> = {
     angry: 0.08,
     anxious: 0.28,
     unwell: 0.18,
+    confused: 0.05,
     neutral: 0.26,
   },
   neutral: {
@@ -71,6 +73,7 @@ const PROFILES: Record<DemoKind, EmotionScores> = {
     angry: 0.04,
     anxious: 0.1,
     unwell: 0.04,
+    confused: 0.02,
     neutral: 0.8,
   },
 }

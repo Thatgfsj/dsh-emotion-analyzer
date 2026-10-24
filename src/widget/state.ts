@@ -6,7 +6,7 @@
  * reused by the Custom Element, the sparkline renderer and the demo entry.
  */
 
-/** Seven unified emotion dimensions, in display order. */
+/** Eight unified emotion dimensions, in display order. */
 export const EMOTION_DIMENSIONS = [
   'happy',
   'pleasant',
@@ -14,6 +14,7 @@ export const EMOTION_DIMENSIONS = [
   'angry',
   'anxious',
   'unwell',
+  'confused',
   'neutral',
 ] as const
 
@@ -46,6 +47,7 @@ export const EMOTION_META: Record<EmotionDimension, EmotionMeta> = {
   angry: { label: '愤怒', labelEn: 'Angry', emoji: '😠', color: '#E5484D', rgb: [229, 72, 77], softRgb: [255, 138, 142] },
   anxious: { label: '焦虑', labelEn: 'Anxious', emoji: '😟', color: '#A855F7', rgb: [168, 85, 247], softRgb: [201, 154, 251] },
   unwell: { label: '不适', labelEn: 'Unwell', emoji: '🤕', color: '#F97316', rgb: [249, 115, 22], softRgb: [253, 167, 102] },
+  confused: { label: '疑问', labelEn: 'Curious', emoji: '🤔', color: '#0891B2', rgb: [8, 145, 178], softRgb: [103, 195, 217] },
   neutral: { label: '平静', labelEn: 'Neutral', emoji: '😐', color: '#8A93A3', rgb: [138, 147, 163], softRgb: [190, 197, 208] },
 }
 
