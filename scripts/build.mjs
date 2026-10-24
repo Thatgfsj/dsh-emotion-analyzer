@@ -46,6 +46,15 @@ async function buildHost() {
     sourcemap: false,
     logLevel: 'info',
   })
+  // Source uses .ts specifiers so node --test can run it directly; the
+  // emitted ESM must import .js.
+  for (const entry of await readdir(join(root, 'lib'))) {
+    if (!entry.endsWith('.js')) continue
+    const path = join(root, 'lib', entry)
+    const code = await readFile(path, 'utf8')
+    const rewritten = code.replace(/(from\s+')(\.{1,2}\/[^']+)\.ts(')/g, '$1$2.js$3')
+    if (rewritten !== code) await writeFile(path, rewritten)
+  }
 }
 
 async function buildClient() {
