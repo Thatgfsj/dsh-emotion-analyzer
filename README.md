@@ -35,6 +35,30 @@ python3 scripts/validate.py         # 20 中文 + 20 英文，top-1 ≥ 80%
 
 模型 `tabularisai/multilingual-emotion-classification`（XLM-RoBERTa-base，278M，11 标签多标签）权重许可证为 **CC-BY-NC-4.0**（非商业）；本仓库代码为 MIT。完整流程、量化方法、实测数据与常见坑见 [模型导出与量化](docs/model-export.md)。
 
+## 本地推理（ONNX）
+
+推理封装在 `src/inference.ts`，由 `EmotionScorer` 惰性加载：
+
+- **模型**：`assets/model-int8.onnx`（INT8 XLM-R），onnxruntime-node CPU 推理；输入是 `int64` 的 `input_ids` / `attention_mask`（`BigInt64Array`）。
+- **分词**：npm 包 `tokenizers`（HF tokenizers 的 Node 绑定）直接读取上游 `assets/tokenizer.json`，`setTruncation(512)`；`<s>=0` / `</s>=2` 由 tokenizer 自带的后处理器加入，不手工拼接。超长输入在 scorer 里再截断一次作为双保险。
+- **输出**：11 个 logits 逐元素 **sigmoid**（多标签分类，**不是 softmax**），得到 11 个独立的 0~1 概率；标签顺序与上游 `config.json` 的 `id2label` 一致（anger, contempt, disgust, fear, frustration, gratitude, joy, love, neutral, sadness, surprise）。
+- **降级**：模型/分词器缺失、native 模块加载失败、推理异常、logits 维度不符 → `init()` 返回 `false` / `score()` 返回 `{}` 并打 `console.warn`/`console.error`，**绝不抛异常**，插件其余功能不受影响。
+- **计时**：单条推理超过 200ms 打 warning（首次调用包含模型加载，不计入单条预算）。
+- **释放**：`dispose()`（或模块级 `dispose()`）释放 ONNX session。
+
+```ts
+import { EmotionScorer } from './src/inference.ts'
+
+const scorer = new EmotionScorer()
+if (await scorer.init()) {
+  const scores = await scorer.score('今天真的很开心')
+  // scores.joy / scores.sad / ... ∈ [0, 1]
+}
+await scorer.dispose()
+```
+
+分词对齐：`tests/fixtures/tokenizer-reference.json` 由模型导出侧用 Python fast tokenizer 生成；`npm test` 会逐 token 比对 ids / attention_mask（含特殊 token）。fixture 或 assets 缺失时测试显式 skip 并打印原因，不会伪造通过。
+
 ## 可调参数
 
 映射层参数集中在 `src/mapping.ts` 顶部：`THRESHOLD`、`DECAY`、`STEP_MAX`、`CAP`。映射规则与累积公式见[架构文档的“情绪映射与累积”](docs/architecture.md#情绪映射与累积srcmappingts)。

@@ -63,6 +63,15 @@ shell.overlay 浮层 → React portal → <emotion-monitor>（Shadow DOM）
 
 示例：连续 5 轮高强度 `sad` → `0.25 → 0.475 → 0.678 → 0.860 → 0.998`（单调上升、不超 `CAP`）；随后 10 轮 `neutral`，`sad` 衰减为原来的 `0.9¹⁰ ≈ 0.349`。
 
+## 本地推理（`src/inference.ts`）
+
+- `EmotionScorer` 惰性加载：首次 `init()` 才 `import('onnxruntime-node')` 建 `InferenceSession`、`import('tokenizers')` 读 `assets/tokenizer.json`；路径用 `new URL('../assets/...', import.meta.url)`，src/ 与构建后的 lib/ 都指向包根 assets，不依赖进程 cwd。
+- 分词：`Tokenizer.fromFile` + `setTruncation(512)`；`encode()` 的 ids / attention_mask 在 scorer 内再截断一次作为双保险；特殊 token 由 tokenizer 自带后处理器加入，不手工拼接。
+- 张量：`int64` + `BigInt64Array`，dims `[1, seq]`；输出 logits → **逐元素 sigmoid**（11 标签多标签分类，不能 softmax），标签顺序固定为上游 `config.json` 的 `id2label`。
+- 失败降级：assets 缺失 / native 模块加载失败 / `session.run` 抛错 / logits 维度不符 → `init() === false` 或 `score() === {}`，写 `console.warn` / `console.error`，**绝不抛**。
+- 计时：单条推理（不含首次模型加载）超过 `SLOW_INFERENCE_MS = 200` 打 warning；`dispose()` 释放 ONNX session，可重复调用。
+- 测试：mock session 覆盖 sigmoid / int64 / 512 截断 / 异常降级 / 计时告警；`tests/fixtures/tokenizer-reference.json` 与 Python fast tokenizer 逐 token 对齐（fixture 或 assets 缺失时显式 skip 并打印原因）。
+
 ## 数据与隐私
 
 - 只把**助手回复文本**送进本地 ONNX，不联网、不发往任何模型 API。
