@@ -56,7 +56,7 @@ function deepFreeze<T>(value: T): T {
 
 test('常量 pinned 在约定值上', () => {
   assert.equal(THRESHOLD, 0.3)
-  assert.equal(DECAY, 0.9)
+  assert.equal(DECAY, 0.85)
   assert.equal(STEP_MAX, 0.25)
   assert.equal(CAP, 1.0)
 })
@@ -137,6 +137,18 @@ test('连续 5 轮 sad：单调上升且不超过 CAP', () => {
   close(history[0] as number, STEP_MAX)
   close(history[1] as number, STEP_MAX + STEP_MAX * DECAY)
   assert.ok((history[4] as number) > 0.9, '5 轮高强度 sad 应接近 CAP')
+})
+
+test('验收场景：5 轮 sad 后 10 轮 neutral，sad < 0.2（issue #13）', () => {
+  let state = initial({})
+  for (let round = 0; round < 5; round += 1) {
+    state = project(state, { sadness: 0.95 })
+  }
+  assert.ok(state.sad > 0.9, `5 轮 sadness 后 sad 应接近 CAP，实际 ${state.sad}`)
+  for (let round = 0; round < 10; round += 1) {
+    state = project(state, { neutral: 0.95 })
+  }
+  assert.ok(state.sad < 0.2, `再 10 轮 neutral 后 sad 应 < 0.2，实际 ${state.sad}`)
 })
 
 test('10 轮 neutral 后 sad < 0.2（旧情绪被衰减）', () => {
