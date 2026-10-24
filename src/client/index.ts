@@ -17,7 +17,6 @@ import {
   createSettingsRow,
   createSettingsSection,
   readVisible,
-  writeVisible,
 } from './settings-row.ts'
 import {
   getEmotionSnapshot,
@@ -76,7 +75,6 @@ export default function createPlugin(require: RequireFn): {
     const [snapshot, setSnapshot] = React.useState(() =>
       getEmotionSnapshot(),
     )
-    const [closed, setClosed] = React.useState(false)
     const [visible, setVisible] = React.useState(() => readVisible())
     const elementRef = React.useRef(null)
 
@@ -108,41 +106,15 @@ export default function createPlugin(require: RequireFn): {
       }
     }, [data])
 
+    // Issue #34: no close event / reopen chip. Visibility is owned solely by
+    // Settings → 情绪分析器; the widget itself has no close button.
     React.useEffect(() => {
-      const element = elementRef.current
-      if (element === null) return undefined
-      const onClose = (): void => {
-        setClosed(true)
-        writeVisible(false)
-      }
-      const onOpen = (): void => {
-        setClosed(false)
-        writeVisible(true)
-      }
-      element.addEventListener('emotion-monitor-close', onClose)
-      element.addEventListener('emotion-monitor-open', onOpen)
-      if (typeof element.isClosed === 'function') setClosed(element.isClosed())
-      return () => {
-        element.removeEventListener('emotion-monitor-close', onClose)
-        element.removeEventListener('emotion-monitor-open', onOpen)
-      }
-    }, [visible])
-
-    React.useEffect(() => {
-      if (!visible || closed) return
+      if (!visible) return
       const element = elementRef.current
       if (element !== null && typeof element.isClosed === 'function' && element.isClosed() && typeof element.show === 'function') {
         element.show()
       }
-    }, [visible, closed])
-
-    const reopen = (): void => {
-      const element = elementRef.current
-      if (element !== null && typeof element.show === 'function') element.show()
-      setClosed(false)
-      setVisible(true)
-      writeVisible(true)
-    }
+    }, [visible])
 
     const children: any[] = visible
       ? [
@@ -154,41 +126,6 @@ export default function createPlugin(require: RequireFn): {
           }),
         ]
       : []
-    if (!visible || closed) {
-      children.push(
-        h(
-          'button',
-          {
-            key: 'reopen',
-            type: 'button',
-            title: '显示情绪监测器',
-            'aria-label': '显示情绪监测器',
-            onClick: reopen,
-            style: {
-              position: 'fixed',
-              right: '12px',
-              top: '12px',
-              height: '34px',
-              padding: '0 12px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              borderRadius: '999px',
-              border: '1px solid rgba(255,255,255,.25)',
-              background: 'rgba(30,30,36,.88)',
-              color: '#fff',
-              fontSize: '13px',
-              lineHeight: '1',
-              cursor: 'pointer',
-              pointerEvents: 'auto',
-              zIndex: 2147483646,
-              boxShadow: '0 6px 20px rgba(0,0,0,.28)',
-            },
-          },
-          '💗 情绪',
-        ),
-      )
-    }
 
     return ReactDOM.createPortal(
       h(

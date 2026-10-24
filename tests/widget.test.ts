@@ -8,6 +8,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  BADGE_SIZE,
+  DRAG_THRESHOLD,
   EMOTION_DIMENSIONS,
   EMOTION_META,
   MAX_TREND,
@@ -24,6 +26,7 @@ import {
   detectLanguage,
   emotionLabel,
   emptyState,
+  exceedsDragThreshold,
   formatLatency,
   formatTurn,
   languageLabel,
@@ -43,14 +46,14 @@ import {
 
 const ALL_ZERO = normalizeScores(null)
 
-test('emotion metadata: eight dimensions with expected emoji + colours', () => {
+test('emotion metadata: seven dimensions with expected emoji + colours', () => {
   assert.deepEqual(
     [...EMOTION_DIMENSIONS],
-    ['happy', 'pleasant', 'sad', 'angry', 'anxious', 'unwell', 'confused', 'neutral'],
+    ['pleasant', 'sad', 'angry', 'anxious', 'unwell', 'confused', 'neutral'],
   )
   assert.deepEqual(
     EMOTION_DIMENSIONS.map((dimension) => EMOTION_META[dimension].emoji),
-    ['😊', '🙂', '😢', '😠', '😟', '🤕', '🤔', '😐'],
+    ['😊', '😢', '😠', '😟', '🤢', '🤔', '😐'],
   )
   const colours = new Set<string>()
   for (const dimension of EMOTION_DIMENSIONS) {
@@ -62,6 +65,35 @@ test('emotion metadata: eight dimensions with expected emoji + colours', () => {
     colours.add(meta.color.toLowerCase())
   }
   assert.equal(colours.size, EMOTION_DIMENSIONS.length, 'colours are unique')
+
+  // Issue #30: happy merged into pleasant, label is 愉快.
+  assert.equal(EMOTION_META.pleasant.label, '愉快')
+  assert.equal(EMOTION_META.pleasant.emoji, '😊')
+  assert.equal(EMOTION_META.pleasant.color, '#F5B301')
+  assert.equal('happy' in EMOTION_META, false, 'happy dimension is removed')
+
+  // Issue #32: unwell renamed 反感 and decoupled from sad.
+  assert.equal(EMOTION_META.unwell.label, '反感')
+  assert.equal(EMOTION_META.unwell.emoji, '🤢')
+  assert.equal(EMOTION_META.unwell.color, '#7C9A3B')
+
+  // Question dimension.
+  assert.equal(EMOTION_META.confused.label, '疑问')
+  assert.equal(EMOTION_META.confused.emoji, '🤔')
+  assert.equal(EMOTION_META.confused.color, '#0891B2')
+})
+
+test('compact badge size + drag/click threshold (#34)', () => {
+  assert.equal(BADGE_SIZE, 64, 'compact badge is ~64x64')
+  assert.equal(DRAG_THRESHOLD, 4, 'drag threshold is 4px')
+  assert.equal(exceedsDragThreshold(0, 0), false)
+  assert.equal(exceedsDragThreshold(3, 0), false)
+  assert.equal(exceedsDragThreshold(4, 0), false, 'exactly 4px is still a click')
+  assert.equal(exceedsDragThreshold(0, -4), false)
+  assert.equal(exceedsDragThreshold(4.1, 0), true)
+  assert.equal(exceedsDragThreshold(-5, 0), true)
+  assert.equal(exceedsDragThreshold(3, 3), true, '3+3px is 4.24px')
+  assert.equal(exceedsDragThreshold(0, 0, 0), false)
 })
 
 test('normalizeScore: clamps, ignores junk, treats >1 as percent', () => {
@@ -77,22 +109,22 @@ test('normalizeScore: clamps, ignores junk, treats >1 as percent', () => {
 })
 
 test('normalizeScores fills every dimension and drops unknown keys', () => {
-  const scores = normalizeScores({ happy: 150, sad: 45, bogus: 9 })
+  const scores = normalizeScores({ pleasant: 150, sad: 45, bogus: 9 })
   assert.deepEqual(Object.keys(scores), [...EMOTION_DIMENSIONS])
-  assert.equal(scores.happy, 1)
+  assert.equal(scores.pleasant, 1)
   assert.equal(scores.sad, 0.45)
   assert.equal(scores.neutral, 0)
 })
 
 test('pickDominant: host preference wins on ties, otherwise max wins', () => {
-  const scores = normalizeScores({ happy: 0.9, sad: 0.2 })
-  assert.equal(pickDominant(scores), 'happy')
-  assert.equal(pickDominant(scores, 'sad'), 'happy')
-  assert.equal(pickDominant(scores, 'happy'), 'happy')
-  assert.equal(pickDominant(scores, 'bogus'), 'happy')
+  const scores = normalizeScores({ pleasant: 0.9, sad: 0.2 })
+  assert.equal(pickDominant(scores), 'pleasant')
+  assert.equal(pickDominant(scores, 'sad'), 'pleasant')
+  assert.equal(pickDominant(scores, 'pleasant'), 'pleasant')
+  assert.equal(pickDominant(scores, 'bogus'), 'pleasant')
 
-  const tie = normalizeScores({ happy: 0.8, sad: 0.8 })
-  assert.equal(pickDominant(tie), 'happy', 'dimension order breaks ties')
+  const tie = normalizeScores({ pleasant: 0.8, sad: 0.8 })
+  assert.equal(pickDominant(tie), 'pleasant', 'dimension order breaks ties')
   assert.equal(pickDominant(tie, 'sad'), 'sad', 'host preference wins a tie')
 
   assert.equal(pickDominant(ALL_ZERO), 'neutral')
@@ -111,38 +143,38 @@ test('trimTrend keeps only the newest 30 samples', () => {
 })
 
 test('normalizeTrend accepts raw score maps (lead contract) and {scores}', () => {
-  const raw = Array.from({ length: 35 }, (_, index) => ({ happy: index / 100 }))
+  const raw = Array.from({ length: 35 }, (_, index) => ({ pleasant: index / 100 }))
   const normalised = normalizeTrend(raw)
   assert.equal(normalised.length, MAX_TREND)
-  assert.equal(normalised[0]?.scores.happy, 0.05)
-  assert.equal(normalised[normalised.length - 1]?.scores.happy, 0.34)
+  assert.equal(normalised[0]?.scores.pleasant, 0.05)
+  assert.equal(normalised[normalised.length - 1]?.scores.pleasant, 0.34)
 
-  const wrapped = normalizeTrend([{ scores: { happy: 0.7 } }, { scores: { sad: 60 } }])
+  const wrapped = normalizeTrend([{ scores: { pleasant: 0.7 } }, { scores: { sad: 60 } }])
   assert.equal(wrapped.length, 2)
-  assert.equal(wrapped[0]?.scores.happy, 0.7)
+  assert.equal(wrapped[0]?.scores.pleasant, 0.7)
   assert.equal(wrapped[1]?.scores.sad, 0.6)
 
-  const dirty = normalizeTrend([null, undefined, { happy: -3 }, 7])
+  const dirty = normalizeTrend([null, undefined, { pleasant: -3 }, 7])
   assert.equal(dirty.length, 4)
-  assert.equal(dirty[2]?.scores.happy, 0)
+  assert.equal(dirty[2]?.scores.pleasant, 0)
   assert.equal(normalizeTrend(null).length, 0)
 })
 
 test('appendTrend appends current scores and trims to MAX_TREND', () => {
-  const initial = normalizeTrend(Array.from({ length: MAX_TREND }, () => ({ happy: 0.1 })))
+  const initial = normalizeTrend(Array.from({ length: MAX_TREND }, () => ({ pleasant: 0.1 })))
   const next = appendTrend(initial, normalizeScores({ sad: 0.9 }))
   assert.equal(next.length, MAX_TREND)
   assert.equal(next[next.length - 1]?.scores.sad, 0.9)
-  assert.equal(next[0]?.scores.happy, 0.1)
-  assert.equal(appendTrend([], normalizeScores({ happy: 1 })).length, 1)
+  assert.equal(next[0]?.scores.pleasant, 0.1)
+  assert.equal(appendTrend([], normalizeScores({ pleasant: 1 })).length, 1)
 })
 
 test('serializeTrend/deserializeTrend round-trip and tolerate corruption', () => {
-  const trend = normalizeTrend([{ happy: 0.1234 }, { sad: 0.5 }])
+  const trend = normalizeTrend([{ pleasant: 0.1234 }, { sad: 0.5 }])
   const raw = serializeTrend(trend)
   const parsed = deserializeTrend(raw)
   assert.equal(parsed.length, 2)
-  assert.equal(parsed[0]?.scores.happy, 0.123)
+  assert.equal(parsed[0]?.scores.pleasant, 0.123)
   assert.equal(parsed[1]?.scores.sad, 0.5)
   assert.deepEqual(deserializeTrend(null), [])
   assert.deepEqual(deserializeTrend('not-json'), [])
@@ -152,14 +184,14 @@ test('serializeTrend/deserializeTrend round-trip and tolerate corruption', () =>
 
 test('sparklineSeries: one normalised series per dimension', () => {
   const trend = normalizeTrend([
-    { happy: 0.2, sad: 80 },
-    { happy: 0.6, sad: 10 },
+    { pleasant: 0.2, sad: 80 },
+    { pleasant: 0.6, sad: 10 },
   ])
   const series = sparklineSeries(trend)
   assert.equal(series.length, EMOTION_DIMENSIONS.length)
-  assert.deepEqual(series[0]?.dimension, 'happy')
+  assert.deepEqual(series[0]?.dimension, 'pleasant')
   assert.deepEqual(series[0]?.values, [0.2, 0.6])
-  assert.deepEqual(series[2]?.values, [0.8, 0.1])
+  assert.deepEqual(series[1]?.values, [0.8, 0.1])
   assert.deepEqual(sparklineSeries(trend, ['neutral']), [
     { dimension: 'neutral', values: [0, 0] },
   ])
@@ -219,8 +251,8 @@ test('CJK language heuristic and host-authoritative resolution', () => {
   assert.equal(resolveLanguage('bogus', '你好'), 'zh')
   assert.equal(languageLabel('zh'), '中文')
   assert.equal(languageLabel('en'), 'English')
-  assert.equal(emotionLabel('happy', 'zh'), '开心')
-  assert.equal(emotionLabel('happy', 'en'), 'Happy')
+  assert.equal(emotionLabel('pleasant', 'zh'), '愉快')
+  assert.equal(emotionLabel('pleasant', 'en'), 'Pleasant')
 })
 
 test('formatTurn / formatLatency / scorePercent', () => {
@@ -240,14 +272,16 @@ test('formatTurn / formatLatency / scorePercent', () => {
 })
 
 test('badge gradient/glow clamp intensity and use the emotion colour', () => {
-  const low = badgeBackground('happy', 0)
-  const high = badgeBackground('happy', 1)
+  const low = badgeBackground('pleasant', 0)
+  const high = badgeBackground('pleasant', 1)
   assert.match(low, /^linear-gradient\(145deg, rgba\(245, 179, 1, /)
   assert.notEqual(low, high)
-  assert.equal(badgeBackground('happy', 5), high, 'intensity is clamped')
-  assert.equal(badgeBackground('happy', -5), low, 'intensity is clamped')
+  assert.equal(badgeBackground('pleasant', 5), high, 'intensity is clamped')
+  assert.equal(badgeBackground('pleasant', -5), low, 'intensity is clamped')
   assert.match(badgeGlow('sad', 1), /^rgba\(76, 141, 246, /)
   assert.match(badgeGlow('sad', 0), /^rgba\(76, 141, 246, /)
+  assert.match(badgeBackground('unwell', 1), /rgba\(124, 154, 59, /)
+  assert.match(badgeBackground('confused', 1), /rgba\(8, 145, 178, /)
 })
 
 test('emptyState is a valid, zeroed waiting state', () => {
@@ -264,8 +298,8 @@ test('normalizeState sanitises the host payload end to end', () => {
   const input = {
     turn: 7.8,
     dominant: 'sad',
-    scores: { happy: 0.1, pleasant: 0.2, sad: 88, angry: -1, anxious: 0.4, unwell: 0.3, neutral: 0.2 },
-    trend: Array.from({ length: 40 }, (_, index) => ({ happy: index / 100 })),
+    scores: { pleasant: 0.2, sad: 88, angry: -1, anxious: 0.4, unwell: 0.3, neutral: 0.2 },
+    trend: Array.from({ length: 40 }, (_, index) => ({ pleasant: index / 100 })),
     language: 'en',
     latencyMs: 34.6,
     sessionTitle: '  Product review  ',

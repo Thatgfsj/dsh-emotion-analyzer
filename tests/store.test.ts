@@ -12,13 +12,15 @@ function wire(overrides: Partial<EmotionWireValue> = {}): EmotionWireValue {
   return {
     version: 1,
     turn: 3,
-    scores: { happy: 0.8, sad: 0.1 },
-    dominant: 'happy',
-    trend: [{ turn: 1, scores: { happy: 0.2 } }],
+    scores: { pleasant: 0.8, sad: 0.1 },
+    dominant: 'pleasant',
+    trend: [{ turn: 1, scores: { pleasant: 0.2 } }],
     latencyMs: 12,
     language: 'zh',
     updatedAt: 123,
     totalTurns: 2,
+    turnScores: { pleasant: 0.8, sad: 0.1 },
+    turnDominant: 'pleasant',
     ...overrides,
   }
 }
@@ -27,9 +29,9 @@ test('toWidgetData maps projection values and rejects absence', () => {
   const data = toWidgetData(wire(), 's-1')
   assert.ok(data)
   assert.equal(data?.turn, 3)
-  assert.equal(data?.dominant, 'happy')
+  assert.equal(data?.dominant, 'pleasant')
   assert.equal(data?.language, 'zh')
-  assert.deepEqual(data?.trend, [{ happy: 0.2 }])
+  assert.deepEqual(data?.trend, [{ pleasant: 0.2 }])
   assert.equal(data?.sessionId, 's-1')
   assert.equal(toWidgetData(undefined), null)
   assert.equal(toWidgetData(null), null)
