@@ -121,3 +121,15 @@ CDP 断言（真实页面）：
 | 设置原子写 / 损坏回退 | ✅ | `tests/settings.test.ts` |
 | 映射 profile（28/11/8 标签 → 7 维） | ✅ | `tests/models-profiles.test.ts`、`tests/projection.test.ts`（v2 记录按 profileId 重放） |
 | 真实 DSH 页面调用模型 API（下载/切换/DELETE） | ⚠️ **未在本机真实验证**：需要 Web 会话 + 大文件下载；route 逻辑已单测，DELETE 方法放行风险见 `docs/models.md` §8 | 后续设置页联调时补 |
+
+## 0.2.0 模型管理验证
+
+| 项 | 结果 |
+|---|---|
+| legacy 40 条 | 40/40 = 100%，中位 8.61ms |
+| Horizon small 40 条 | 38/40 = 95%，中位 19.33ms（<200ms） |
+| npm run check（无 Horizon env） | 120 tests / 119 pass / 1 skip（Horizon 精度用例） |
+| npm run check（DSH_EMOTION_HORIZON_DIR） | 120/120 pass |
+| npm run build | 通过（含 lib/models/*） |
+| 模型 Host API | 路由单测通过；DELETE 方法运行时验证待真实页面 |
+| 设置页模型 UI | 单测 + build 通过；真实页面模型区截图待补（欢迎页登录态限制） |
