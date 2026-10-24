@@ -1,0 +1,6 @@
+# dsh-emotion-analyzer bundle patch layer.
+# Host 插件行；name 用包名，由 Node 解析到 exports["."]。
+- insert:
+    - id: dsh-emotion-analyzer
+      name: dsh-emotion-analyzer
+      config: {}
