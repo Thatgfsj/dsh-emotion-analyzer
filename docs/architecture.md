@@ -56,6 +56,10 @@ shell.overlay 浮层 → React portal → <emotion-monitor>（Shadow DOM）
    - 本轮没有**被映射的**输入（空对象、只有 `surprise`、全非法值）→ 视为“无输入”，所有维度纯衰减；
    - 有输入但所有维度聚合值都低于 `THRESHOLD` → 判为噪声，整轮跳过，状态不变。
 3. **命中**（聚合值 ≥ `THRESHOLD`）：`next = min(CAP, old × DECAY + min(raw, STEP_MAX))`。
+   可调常量在 `src/mapping.ts` 顶部：`THRESHOLD=0.3`、`DECAY=0.85`、
+   `STEP_MAX=0.25`、`CAP=1.0`。`DECAY` 取 0.85 而不是 0.9 的原因见
+   [issue #13](https://github.com/Thatgfsj/dsh-emotion-analyzer/issues/13)：
+   0.9^10 = 0.349，无法满足“5 轮伤心 + 10 轮中性后 sad < 0.2”的验收。
 4. **未命中**：`next = old × DECAY`。
 5. 钳制到 `[0, 1]`，返回新对象，不修改入参。
 
