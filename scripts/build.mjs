@@ -47,14 +47,21 @@ async function buildHost() {
     logLevel: 'info',
   })
   // Source uses .ts specifiers so node --test can run it directly; the
-  // emitted ESM must import .js.
-  for (const entry of await readdir(join(root, 'lib'))) {
-    if (!entry.endsWith('.js')) continue
-    const path = join(root, 'lib', entry)
+  // emitted ESM must import .js. v0.2 has nested host dirs (lib/models/*),
+  // so rewrite recursively instead of only lib/*.js.
+  for (const entry of entryPoints) {
+    const relative = relativePath(join(root, 'src'), entry).replace(/\.ts$/u, '.js')
+    const path = join(root, 'lib', relative)
+    if (!existsSync(path)) continue
     const code = await readFile(path, 'utf8')
     const rewritten = code.replace(/(from\s+["'])(\.{1,2}\/[^"']+)\.ts(["'])/g, '$1$2.js$3')
     if (rewritten !== code) await writeFile(path, rewritten)
   }
+}
+
+/** POSIX-style relative path between two absolute paths. */
+function relativePath(from, to) {
+  return to.slice(from.length + 1).split('\\').join('/')
 }
 
 async function buildClient() {

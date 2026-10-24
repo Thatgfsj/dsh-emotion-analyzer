@@ -4,6 +4,8 @@
 
 本仓库的推理完全在本地进行：从 Hugging Face 下载上游多语言情绪模型，用 Optimum 导出 ONNX，再用 onnxruntime 动态量化为 INT8，最后用内置的 40 条中英文测试句自验收。
 
+> v0.2 起默认模型是 Horizon small（官方 INT8 ONNX，可直接下载，见 [模型注册、下载与映射](models.md)）。本页的 tabularisai 导出流程保留为 **legacy 回退资产**：默认模型未下载时插件仍可用它打分（CC-BY-NC-4.0，非商业）。
+
 ## 1. 模型来源
 
 | 项 | 值 |

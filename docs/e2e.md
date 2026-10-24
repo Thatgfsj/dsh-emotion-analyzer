@@ -106,3 +106,30 @@ CDP 断言（真实页面）：
 - 8 条 neutral 句：除 neutral 外所有维度最大 **0.018**，`doubt` 全部为 0，不会触发更新。
 - 40 条中次级维度 ≥0.2 的只有 12 条，其中 ≥0.3 的 11 条；降到 0.2 仅新增 5 个次级命中（0.210–0.245），top-1 与准确率不变。
 - 真正的多标签串扰来自模型本身（例如「Walking home alone in the dark really scares me.」sad=0.853、anxious 才是期望），不是 0.2 阈值引入；投影按维度独立累积，属可接受行为。
+
+## v0.2 模型切换回归（issue #39）
+
+> 环境：Linux x86_64 / Node 24.21 / CPU INT8；Horizon small 从 Hugging Face 下载到 `/tmp`，未提交仓库。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| legacy 40 条 | **40/40 = 100%**，中位 8.6 ms | `DSH_EMOTION_HORIZON_DIR=... node --test tests/models-accuracy.test.ts` |
+| Horizon small 40 条 | **38/40 = 95%**（≥90%），中位 19.3 ms | 同上；2 miss 见 `docs/models.md` §7 |
+| 下载：流式 / 大小校验 / 回滚 / 取消 / 并发去重 | ✅ 8 个 manager 单测 | `tests/models-manager.test.ts` |
+| 默认回退 legacy / 切换 / 删除后回退 / needsExport | ✅ 8 个 service 单测 | `tests/models-service.test.ts` |
+| Host API 契约与错误形状 | ✅ 7 个 route 单测（含 4 条 DELETE 预注册） | `tests/models-routes.test.ts` |
+| 设置原子写 / 损坏回退 | ✅ | `tests/settings.test.ts` |
+| 映射 profile（28/11/8 标签 → 7 维） | ✅ | `tests/models-profiles.test.ts`、`tests/projection.test.ts`（v2 记录按 profileId 重放） |
+| 真实 DSH 页面调用模型 API（下载/切换/DELETE） | ⚠️ **未在本机真实验证**：需要 Web 会话 + 大文件下载；route 逻辑已单测，DELETE 方法放行风险见 `docs/models.md` §8 | 后续设置页联调时补 |
+
+## 0.2.0 模型管理验证
+
+| 项 | 结果 |
+|---|---|
+| legacy 40 条 | 40/40 = 100%，中位 8.61ms |
+| Horizon small 40 条 | 38/40 = 95%，中位 19.33ms（<200ms） |
+| npm run check（无 Horizon env） | 120 tests / 119 pass / 1 skip（Horizon 精度用例） |
+| npm run check（DSH_EMOTION_HORIZON_DIR） | 120/120 pass |
+| npm run build | 通过（含 lib/models/*） |
+| 模型 Host API | 路由单测通过；DELETE 方法运行时验证待真实页面 |
+| 设置页模型 UI | 单测 + build 通过；真实页面模型区截图待补（欢迎页登录态限制） |

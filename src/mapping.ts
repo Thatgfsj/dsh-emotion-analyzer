@@ -1,9 +1,15 @@
 /**
- * dsh-emotion-analyzer — 情绪映射层（issue #3）。
+ * dsh-emotion-analyzer — 情绪映射层（issue #3 / v0.2 #39）。
  *
- * 模型输出 `11` 个原始标签的独立概率（逐标签 sigmoid，标签之间不互斥），
+ * 模型输出一组原始标签的独立概率（逐标签 sigmoid，标签之间不互斥），
  * 本模块把它们聚合成 7 个面向 UI 的统一维度，并维护一个带衰减 / 步长 /
  * 封顶的累积投影。
+ *
+ * v0.2 起支持可插拔 profile：不同模型（legacy 11 标签 / GoEmotions 28 标签 /
+ * 中文 8 标签）各自提供一份 `RuleMap`，通用函数 {@link aggregateWithRules}
+ * 与 {@link updateProjectionWithRules} 只依赖这份规则，不再硬编码标签名。
+ * 默认导出（{@link EMOTION_MAP} / {@link aggregate} / {@link updateProjection}）
+ * 仍保持 legacy-11 语义，供旧调用方与投影重放使用。
  *
  * 设计约束：
  * - 零第三方依赖、纯函数；相同输入永远得到相同输出。
@@ -44,7 +50,7 @@ export const CAP = 1.0
 /* ------------------------------------------------------------------------- */
 
 /**
- * 真实模型输出的 11 个原始标签（顺序与模型 id2label 一致）。
+ * legacy 模型（tabularisai，11 标签）的原始标签，顺序与模型 id2label 一致。
  * `surprise` 用作“疑问/惊讶”的代理：模型没有 confusion/uncertainty 标签，
  * 最接近的就是 surprise（见 issue #25，文档里明确标注这是代理指标）。
  */
@@ -62,20 +68,20 @@ export const RAW_EMOTION_LABELS = [
   'surprise',
 ] as const
 
-/** 模型原始标签。 */
+/** legacy 模型原始标签。 */
 export type RawEmotionLabel = (typeof RAW_EMOTION_LABELS)[number]
 
 /**
  * 宿主侧派生信号（不是模型输出）：由 `src/text.ts` 的文本启发式给出。
- * `doubt` 与 surprise 一起映射到“疑问”，解决中文疑问句 surprise 不响应的问题。
+ * `doubt` 与 surprise/confusion 一起映射到“疑问”，解决中文疑问句模型不响应的问题。
  */
 export const DERIVED_LABELS = ['doubt'] as const
 /** 派生信号名。 */
 export type DerivedLabel = (typeof DERIVED_LABELS)[number]
-/** 参与映射的标签：模型原始标签 + 派生信号。 */
-export type ScoredLabel = RawEmotionLabel | DerivedLabel
+/** 参与映射的标签（v0.2 起允许任意模型标签名）。 */
+export type ScoredLabel = string
 
-/** 写入 Session projection 的 7 个统一维度（happy 已并入 pleasant，见 issue #30）。 */
+/** 写入 Session projection 的 7 个统一维度。 */
 export const EMOTION_DIMENSIONS = [
   'pleasant',
   'sad',
@@ -91,7 +97,7 @@ export type EmotionDimension = (typeof EMOTION_DIMENSIONS)[number]
 /** 一套完整的统一维度分数（每个维度都在 [0, 1]）。 */
 export type EmotionScores = Record<EmotionDimension, number>
 /** 模型原始分数 + 派生信号分数：允许部分标签；未知标签在运行时会被忽略。 */
-export type RawScores = Readonly<Partial<Record<ScoredLabel, number>>>
+export type RawScores = Readonly<Record<string, number | undefined>>
 
 /** 聚合方式：`max` 取参与标签的最大值，`wsum` 取加权和。 */
 export type AggregateKind = 'max' | 'wsum'
@@ -99,44 +105,33 @@ export type AggregateKind = 'max' | 'wsum'
 /** 一个统一维度的聚合规则。 */
 export interface EmotionRule {
   readonly kind: AggregateKind
-  /** 参与聚合的 [原始标签, 权重]；`max` 的权重恒为 1，仅 `wsum` 用到权重。 */
+  /** 参与聚合的 [原始标签, 权重]；`max` 的权重通常为 1，`wsum` 用权重。 */
   readonly terms: ReadonlyArray<readonly [ScoredLabel, number]>
 }
 
+/** 一套完整的标签 → 7 维映射规则。 */
+export type RuleMap = Readonly<Record<EmotionDimension, EmotionRule>>
+
 /**
- * 统一维度 ← 原始标签的硬编码映射。
+ * legacy-11 的统一维度 ← 原始标签映射（v0.1 行为，保持兼容）。
  *
  * - pleasant / sad / angry / anxious / neutral 用 `max`：同一维度
  *   里任一标签高就代表该情绪强，取最大值不会被多个同义标签重复放大。
  * - unwell 用 `max`：max(disgust, 0.5 * fear)，表达“恶心/难受”的反感；
  *   与 sad 解耦后纯悲伤不再点亮（issue #32）。
  * - disgust 只归 unwell：模型对“恶心”给 disgust≈0.99，若同时进 angry 会
- *   出现 angry 与 unwell 两条重复高亮，故 angry 只看 anger/contempt/frustration。
- * - confused（显示名“疑问”）用 surprise 代理：当前模型没有 confusion /
- *   uncertainty 标签，surprise 是语义上最接近的可用信号（issue #25）。
+ *   出现 angry 与 unwell 两条重复高亮（issue #32）。
+ * - confused（显示名“疑问”）用 surprise 代理 + doubt 派生信号。
  */
-export const EMOTION_MAP: Readonly<Record<EmotionDimension, EmotionRule>> = {
-  // happy 已并入 pleasant（issue #30）：joy/gratitude/love 共享一个“愉快”维度。
+export const EMOTION_MAP: RuleMap = {
   pleasant: { kind: 'max', terms: [['joy', 1], ['love', 1], ['gratitude', 1]] },
-  // 精修（issue #30）：frustration 只归 angry，不再同时推高 sad/anxious。
   sad: { kind: 'max', terms: [['sadness', 1]] },
-  // 精修（issue #32）：disgust 只归 unwell（否则“恶心”会同时点亮 angry+unwell）。
   angry: { kind: 'max', terms: [['anger', 1], ['contempt', 1], ['frustration', 1]] },
   anxious: { kind: 'max', terms: [['fear', 1]] },
-  // issue #32：模型没有 sickness 标签；旧式 0.5*sadness+0.4*disgust 与 sad
-  // 共线（40 条验收集实测 r=0.965）。改为 max(disgust, 0.5*fear)：解耦后
-  // r=0.028，“恶心/头晕胃翻”仍能命中，纯悲伤不再点亮。
   unwell: { kind: 'max', terms: [['disgust', 1], ['fear', 0.5]] },
-  // `doubt` 是宿主文本启发式（非模型标签）；surprise 只覆盖“惊讶”，
-  // 中文疑问/不确定句需要 doubt 才能命中（见 issue #28）。
   confused: { kind: 'max', terms: [['surprise', 1], ['doubt', 1]] },
   neutral: { kind: 'max', terms: [['neutral', 1]] },
 }
-
-/** 被某个统一维度实际消费的标签（11 个模型标签 + doubt 派生信号）。 */
-const MAPPED_LABELS: readonly ScoredLabel[] = [
-  ...new Set(EMOTION_DIMENSIONS.flatMap((dimension) => EMOTION_MAP[dimension].terms.map(([label]) => label))),
-]
 
 /* ------------------------------------------------------------------------- */
 /* 纯函数                                                                     */
@@ -157,10 +152,19 @@ function readLabel(scores: RawScores | null | undefined, label: ScoredLabel): nu
   return typeof value === 'number' ? clamp01(value) : 0
 }
 
-/** 是否至少提供了一个被映射的标签分数（未知标签不算）。 */
-function hasMappedInput(scores: RawScores | null | undefined): boolean {
+/** 规则里实际消费的标签集合（用于判断“本轮是否有映射输入”）。 */
+export function mappedLabelsOf(rules: RuleMap): readonly ScoredLabel[] {
+  const labels = new Set<ScoredLabel>()
+  for (const dimension of EMOTION_DIMENSIONS) {
+    for (const [label] of rules[dimension].terms) labels.add(label)
+  }
+  return [...labels]
+}
+
+/** 是否至少提供了一个被该规则映射的标签分数（未知标签不算）。 */
+export function hasMappedInputWithRules(rules: RuleMap, scores: RawScores | null | undefined): boolean {
   if (!scores) return false
-  return MAPPED_LABELS.some((label) => {
+  return mappedLabelsOf(rules).some((label) => {
     const value = scores[label]
     return typeof value === 'number' && Number.isFinite(value)
   })
@@ -180,7 +184,9 @@ export function emptyProjection(): EmotionScores {
 }
 
 /** 把可能残缺 / 越界的投影补齐并钳制到 [0, 1]，返回新对象。 */
-export function normalizeProjection(current: Partial<Record<EmotionDimension, number>> | null | undefined): EmotionScores {
+export function normalizeProjection(
+  current: Partial<Record<EmotionDimension, number>> | null | undefined,
+): EmotionScores {
   const next = emptyProjection()
   if (!current) return next
   for (const dimension of EMOTION_DIMENSIONS) {
@@ -190,14 +196,13 @@ export function normalizeProjection(current: Partial<Record<EmotionDimension, nu
 }
 
 /**
- * 聚合原始分数，得到 7 个统一维度的“本轮原始强度”（未做阈值 / 衰减）。
- *
- * 只做聚合，不修改入参；结果已钳制到 [0, 1]，可直接用于断言与调试。
+ * 用给定规则聚合原始分数，得到 7 个统一维度的“本轮原始强度”
+ * （未做阈值 / 衰减）。只做聚合，不修改入参；结果已钳制到 [0, 1]。
  */
-export function aggregate(scores: RawScores | null | undefined): EmotionScores {
+export function aggregateWithRules(rules: RuleMap, scores: RawScores | null | undefined): EmotionScores {
   const aggregated = emptyProjection()
   for (const dimension of EMOTION_DIMENSIONS) {
-    const rule = EMOTION_MAP[dimension]
+    const rule = rules[dimension]
     let value = 0
     if (rule.kind === 'max') {
       for (const [label, weight] of rule.terms) {
@@ -213,6 +218,11 @@ export function aggregate(scores: RawScores | null | undefined): EmotionScores {
   return aggregated
 }
 
+/** legacy-11 规则下的聚合（兼容旧调用方）。 */
+export function aggregate(scores: RawScores | null | undefined): EmotionScores {
+  return aggregateWithRules(EMOTION_MAP, scores)
+}
+
 /** 整轮无信号时的纯衰减：所有维度乘以 DECAY。 */
 function decayAll(current: EmotionScores): EmotionScores {
   const next = emptyProjection()
@@ -223,31 +233,31 @@ function decayAll(current: EmotionScores): EmotionScores {
 }
 
 /**
- * 用本轮原始分数更新累积投影。
+ * 用给定规则把本轮原始分数更新进累积投影。
  *
  * 算法（按顺序）：
- * 1. 聚合：原始标签 + doubt 派生信号 → 7 个统一维度（见 {@link aggregate}）。
- * 2. 门控：本轮没有任何被映射的输入（空对象 / 全是非法值）
+ * 1. 聚合：原始标签 + 派生信号 → 7 个统一维度（见 {@link aggregateWithRules}）。
+ * 2. 门控：本轮没有任何被规则映射的输入（空对象 / 全是非法值）
  *    视为“无输入”，所有维度纯衰减；有输入但所有维度聚合值都低于
  *    {@link THRESHOLD} 时视为噪声，直接返回当前状态的副本（不积累、不衰减）。
  * 3. 命中（聚合值 ≥ THRESHOLD）：next = min(CAP, old * DECAY + min(raw, STEP_MAX))。
  * 4. 未命中（聚合值 < THRESHOLD）：next = old * DECAY。
  * 5. 钳制到 [0, 1] 并返回新对象；入参不会被修改。
  *
- * 公共签名固定为 `Record<string, number>`（与 src/index.ts / src/projection.ts
- * 的宿主集成契约一致，见接口对齐约定）；运行时额外容忍缺失键、越界值与
- * `null` / `undefined`，方便 projection 冷启动。
+ * 公共签名固定为 `Record<string, number>`（与宿主集成契约一致）；运行时额外
+ * 容忍缺失键、越界值与 `null` / `undefined`，方便 projection 冷启动。
  */
-export function updateProjection(
+export function updateProjectionWithRules(
+  rules: RuleMap,
   current: Record<string, number>,
   rawScores: Record<string, number>,
 ): Record<string, number> {
   const base = normalizeProjection(current as Partial<Record<EmotionDimension, number>> | null | undefined)
 
   // 2a. 没有可用的映射输入 → 纯衰减（“无输入衰减到 0”）。
-  if (!hasMappedInput(rawScores as RawScores)) return decayAll(base)
+  if (!hasMappedInputWithRules(rules, rawScores)) return decayAll(base)
 
-  const raw = aggregate(rawScores as RawScores)
+  const raw = aggregateWithRules(rules, rawScores)
 
   // 2b. 有输入但全维度低于阈值 → 判为噪声，跳过本次更新。
   if (!EMOTION_DIMENSIONS.some((dimension) => raw[dimension] >= THRESHOLD)) {
@@ -266,4 +276,12 @@ export function updateProjection(
     }
   }
   return next
+}
+
+/** legacy-11 规则下的累积更新（兼容旧调用方）。 */
+export function updateProjection(
+  current: Record<string, number>,
+  rawScores: Record<string, number>,
+): Record<string, number> {
+  return updateProjectionWithRules(EMOTION_MAP, current, rawScores)
 }

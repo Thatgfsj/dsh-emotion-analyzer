@@ -6,6 +6,7 @@
  * lives in localStorage and is broadcast through a window CustomEvent. No
  * host config, no transport, no `@deepseek-ai/dsh-client-*` runtime import.
  */
+import { createSettingsModels } from './settings-models.ts'
 
 /** localStorage key holding the visible preference. */
 export const VISIBLE_KEY = 'dsh-emotion-analyzer.visible'
@@ -99,6 +100,7 @@ export function createSettingsRow(React: any): (props?: Record<string, unknown>)
  * @returns a React component rendering the section content.
  */
 export function createSettingsSection(React: any): (props?: Record<string, unknown>) => any {
+  const SettingsModels = createSettingsModels(React)
   const buttonStyle = {
     border: '1px solid var(--dsw-alias-border-l2, rgba(15,23,42,.15))',
     background: 'var(--dsw-alias-bg-base, #fff)',
@@ -124,7 +126,7 @@ export function createSettingsSection(React: any): (props?: Record<string, unkno
     }
     return React.createElement(
       'div',
-      { 'data-emotion-analyzer-section': '', style: { display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '640px' } },
+      { 'data-emotion-analyzer-section': '', style: { display: 'flex', flexDirection: 'column', gap: '18px', maxWidth: '760px' } },
       React.createElement('p', { style: { margin: 0, fontSize: '13px', lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary, #4b5563)' } },
         '对主模型每条回复做本地情绪打分，并在页面右上角显示紧凑 emoji 徽章。悬浮框的显示/隐藏只由本页开关控制。'),
       React.createElement(
@@ -169,6 +171,7 @@ export function createSettingsSection(React: any): (props?: Record<string, unkno
       ),
       React.createElement('p', { style: { margin: 0, fontSize: '12px', color: 'var(--dsw-alias-label-tertiary, #6b7280)' } },
         '悬浮框位置、折叠状态与最近 30 轮趋势保存在浏览器 localStorage；清除趋势只会影响当前浏览器的历史曲线。'),
+      React.createElement(SettingsModels),
     )
   }
 }
