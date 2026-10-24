@@ -79,6 +79,6 @@ test('projection unit ignores foreign and malformed records', () => {
   assert.equal(unit.apply(initial, { type: EMOTION_RECORD_TYPE, data: { nope: true } }), initial)
   const withRecord = unit.apply(initial, { type: EMOTION_RECORD_TYPE, data: record(1, { joy: 0.93 }) })
   assert.notEqual(withRecord, initial)
-  assert.ok((withRecord.scores.happy ?? 0) > 0.2)
+  assert.ok((withRecord.scores.pleasant ?? 0) > 0.2)
   assert.equal(unit.wire?.view(withRecord), withRecord)
 })

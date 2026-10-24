@@ -35,28 +35,26 @@ shell.overlay 浮层 → React portal → <emotion-monitor>（Shadow DOM）
 
 ## 情绪映射与累积（`src/mapping.ts`）
 
-模型的 11 个原始标签（逐标签 sigmoid，互不排斥）聚合成 8 个统一维度：
+模型的 11 个原始标签（逐标签 sigmoid，互不排斥）聚合成 7 个统一维度：
 
 | 统一维度 | 聚合 | 原始标签 |
 |---|---|---|
-| `happy` | max | joy, gratitude |
-| `pleasant` | max | joy, love, gratitude |
-| `sad` | max | sadness, frustration |
+| `pleasant`（愉快） | max | joy, love, gratitude（happy 已并入） |
+| `sad` | max | sadness |
 | `angry` | max | anger, disgust, contempt, frustration |
-| `anxious` | max | fear, frustration |
-| `unwell` | 加权和 | sadness×0.5 + disgust×0.4 |
-| `confused`（疑问） | max | surprise（模型）+ doubt（宿主文本启发式：问号/疑问词/不确定词） |
-
+| `anxious` | max | fear |
+| `unwell`（反感） | 加权 max | max(disgust, fear×0.5)，与 sad 解耦（#32） |
+| `confused`（疑问） | max | surprise（模型）+ doubt（宿主文本启发式） |
 | `neutral` | max | neutral |
 
-`max` 让同义标签取最强的一个，避免重复放大；`wsum` 表达混合不适感。`confused` 由两部分组成：模型 `surprise`（只覆盖真正的惊讶）+ 宿主启发式 `doubt`（覆盖中文疑问/不确定句，见 [issue #28](https://github.com/Thatgfsj/dsh-emotion-analyzer/issues/28)）；二者都是代理，不代表模型具备真实困惑分类能力。
+`max` 让同义标签取最强的一个，避免重复放大；`unwell` 不再用 sadness 拼装，避免与 sad 共线（r=0.976 → 0.22）。`confused` 由两部分组成：模型 `surprise`（只覆盖真正的惊讶）+ 宿主启发式 `doubt`（覆盖中文疑问/不确定句，见 [issue #28](https://github.com/Thatgfsj/dsh-emotion-analyzer/issues/28)）；二者都是代理，不代表模型具备真实困惑分类能力。
 
 `updateProjection(current, rawScores)` 是纯函数，按顺序执行：
 
-1. **聚合**：11 个原始标签 → 8 个维度（越界 / 非有限值按 0 处理）。
+1. **聚合**：11 个原始标签 → 7 个维度（越界 / 非有限值按 0 处理）。
 2. **门控**：
    - 本轮没有**被映射的**输入（空对象、全非法值）→ 视为“无输入”，所有维度纯衰减；
-   - 有输入但所有维度聚合值都低于 `THRESHOLD` → 判为噪声，整轮跳过，状态不变。
+   - 有输入但所有维度聚合值都低于 `THRESHOLD`（0.2，issue #30 校准）→ 判为噪声，整轮跳过，状态不变。
 3. **命中**（聚合值 ≥ `THRESHOLD`）：`next = min(CAP, old × DECAY + min(raw, STEP_MAX))`。
    可调常量在 `src/mapping.ts` 顶部：`THRESHOLD=0.3`、`DECAY=0.85`、
    `STEP_MAX=0.25`、`CAP=1.0`。`DECAY` 取 0.85 而不是 0.9 的原因见

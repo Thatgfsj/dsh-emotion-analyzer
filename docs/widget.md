@@ -1,6 +1,6 @@
 # 悬浮框 `<emotion-monitor>`
 
-Shadow DOM 情绪悬浮框：可拖拽、可折叠成 48px emoji 徽章、30 轮 canvas 趋势线、明暗双主题，样式与宿主页面完全隔离。
+Shadow DOM 情绪悬浮框：**默认是 48px emoji 徽章，点击展开详细面板、再点 [—] 折叠**；可拖拽、30 轮 canvas 趋势线、明暗双主题，样式与宿主页面完全隔离（#31）。
 
 ![展开态](screenshots/widget-expanded.png)
 
@@ -54,9 +54,9 @@ const element = document.createElement('emotion-monitor')
 container.appendChild(element)                 // 由宿主决定挂载点
 element.update({
   turn: 12,
-  dominant: 'happy',
-  scores: { happy: 0.84, pleasant: 0.62, sad: 0.05, angry: 0.02, anxious: 0.1, unwell: 0.04, neutral: 0.18 },
-  trend: [{ happy: 0.7, /* ... */ }, { happy: 0.84, /* ... */ }],
+  dominant: 'pleasant',
+  scores: { pleasant: 0.84, sad: 0.05, angry: 0.02, anxious: 0.1, unwell: 0.04, confused: 0.01, neutral: 0.18 },
+  trend: [{ pleasant: 0.7, /* ... */ }, { pleasant: 0.84, /* ... */ }],
   language: 'zh',
   latencyMs: 34,
   sessionId: 'session-xxx',
@@ -84,7 +84,7 @@ element.update({
 |---|---|---|
 | `turn` | `number` | 当前轮次，显示为 `Turn N` |
 | `dominant` | `string` | 主导情绪；不合法或明显低于最高分时由 widget 按 scores 重新计算 |
-| `scores` | `Record<string, number>` | 7 个维度：`happy/pleasant/sad/angry/anxious/unwell/neutral`；0–1，>1 按百分比解释（72 → 0.72），缺失补 0 |
+| `scores` | `Record<string, number>` | 7 个维度：`pleasant/sad/angry/anxious/unwell/confused/neutral`；0–1，>1 按百分比解释（72 → 0.72），缺失补 0 |
 | `trend` | `Array<Record<string, number>>` | 最近 30 轮，每项是 scores 映射；也兼容旧的 `{ scores }` 结构 |
 | `language` | `'zh' \| 'en'` | 由宿主传入并原样展示；缺失时回退到 sessionTitle 的 CJK 占比判断 |
 | `latencyMs` | `number` | 显示为 `34ms`；负数/缺失显示 `--` |
@@ -106,8 +106,8 @@ element.update({
 ## 交互
 
 - **拖拽**：标题栏 pointer events + `setPointerCapture`；移动过程实时 clamp 在 viewport 内（边距 12px），松手写入 localStorage。窗口 resize 后也会重新 clamp。
-- **折叠**：标题栏 `—` → 48px 圆形徽章，显示主导情绪 emoji：happy 😊 / pleasant 🙂 / sad 😢 / angry 😠 / anxious 😟 / unwell 🤕 / neutral 😐；背景是「主色 + 强度」的 145° 渐变与同色投影。
-- **hover 预览**：折叠态悬停徽章 220ms 后浮出完整面板（自动避开右/下边缘），移开鼠标收回；点击徽章则固定展开并持久化。
+- **默认 compact / 展开**：默认 48px 圆形徽章，显示本回合主导情绪 emoji：pleasant 😊 / sad 😢 / angry 😠 / anxious 😟 / unwell 🤢 / confused 🤔 / neutral 😐；点击徽章展开详细面板，点标题栏 `—` 收起；背景是「主色 + 强度」的 145° 渐变与同色投影。
+- **点击展开/收起**：点击徽章展开详细面板，点标题栏 `—` 收起；不再有 hover 自动预览（#31）。
 - **关闭**：`×` 隐藏元素并写入 `closed=1`；宿主或 `show()` 恢复。
 - **等待态**：尚未收到任何 `update` 时显示「等待第一条回复…」（不渲染空分数条与空折线）；收到第一轮后自动切换。
 - **rAF 合并**：同一帧内多次 `update` 只渲染一次；分数条 `width` 使用 300ms `cubic-bezier(.22,.61,.36,1)` 过渡。
@@ -146,7 +146,7 @@ Shadow Root 内自带完整默认值；宿主可在 `<emotion-monitor>` 上覆�
 | `--em-badge-ring` | 白色 92% | 白色 35% | 徽章内描边 |
 
 情绪颜色（与分数条、折线一一对应）在 `src/widget/state.ts` 的 `EMOTION_META` 中定义：
-happy `#F5B301`、pleasant `#34B36A`、sad `#4C8DF6`、angry `#E5484D`、anxious `#A855F7`、unwell `#F97316`、neutral `#8A93A3`。
+pleasant `#F5B301`、sad `#4C8DF6`、angry `#E5484D`、anxious `#A855F7`、unwell `#7C9A3B`、confused `#0891B2`、neutral `#8A93A3`。
 
 ## Shadow DOM 隔离
 

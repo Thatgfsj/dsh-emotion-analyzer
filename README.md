@@ -13,9 +13,9 @@
 
 - **本地推理，零第三方模型 API**：XLM-RoBERTa-base 多语言情绪分类（11 标签多标签），ONNX INT8 动态量化，CPU 中位 **6.8ms/条**（p95 ≈ 8ms），不联网、不额外消耗主模型 Token。
 - **多语言**：中文 / 英文原生支持（训练数据 20+ 语言），按 CJK 占比显示语言标识。
-- **硬编码映射层**：11 个原始标签 → 8 个统一维度（happy/pleasant/sad/angry/anxious/unwell/**confused（疑问 = surprise + doubt 文本启发式）**/neutral），阈值过滤 + 衰减 + 步长 + 封顶，参数集中在 `src/mapping.ts`。
+- **硬编码映射层**：11 个原始标签 → 7 个统一维度（**愉快 pleasant** / 悲伤 / 愤怒 / 焦虑 / **反感 unwell = max(disgust, 0.5·fear)** / **疑问 confused = max(surprise, doubt)** / 平静），阈值过滤 + 衰减 + 步长 + 封顶，参数集中在 `src/mapping.ts`。开心已并入「愉快」（#30）。
 - **Session projection**：每轮分数以 `plugin:emotion-analyzer/turn`（ignorable）写入会话日志，由 `emotion` projection 单元纯同步 fold；重启、fork 自动恢复。
-- **悬浮框**：Web Components + Shadow DOM，演示态见下；拖拽、位置记忆、折叠 emoji 徽章、300ms 分数条动画、30 轮 canvas sparkline、明暗主题、关闭后设置页/右下角 💗 重开。
+- **悬浮框**：Web Components + Shadow DOM；**默认只显示一个 emoji 徽章**，点击才展开分数条/sparkline，再点 [—] 折叠；拖拽、位置记忆、300ms 动画、30 轮 canvas 趋势、明暗主题、关闭后设置页/右上角 💗 重开（#31）。
 
 | 折叠徽章 | 暗色主题 | 真实 DSH 页面 |
 |---|---|---|
@@ -62,7 +62,7 @@ dsh plugin --profile web add /path/to/dsh-emotion-analyzer
 | `STEP_MAX` | 0.25 | 单轮命中最大步长，避免一次爆表 |
 | `CAP` | 1.0 | 统一维度封顶 |
 
-模型原始标签 → 统一维度映射见 `EMOTION_MAP`（`surprise` 暂不映射）。
+模型原始标签 → 统一维度映射见 `EMOTION_MAP`（`unwell = max(disgust, 0.5·fear)`；`confused = max(surprise, doubt)`，doubt 为文本启发式）。
 
 ## 验收结果
 

@@ -19,6 +19,8 @@ function wire(overrides: Partial<EmotionWireValue> = {}): EmotionWireValue {
     language: 'zh',
     updatedAt: 123,
     totalTurns: 2,
+    turnScores: { happy: 0.8, sad: 0.1 },
+    turnDominant: 'happy',
     ...overrides,
   }
 }

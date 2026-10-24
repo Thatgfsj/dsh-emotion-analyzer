@@ -6,9 +6,8 @@
  * reused by the Custom Element, the sparkline renderer and the demo entry.
  */
 
-/** Eight unified emotion dimensions, in display order. */
+/** Seven unified emotion dimensions, in display order (happy merged into pleasant). */
 export const EMOTION_DIMENSIONS = [
-  'happy',
   'pleasant',
   'sad',
   'angry',
@@ -41,12 +40,11 @@ export interface EmotionMeta {
 
 /** Single source of truth for labels, emoji and colours. */
 export const EMOTION_META: Record<EmotionDimension, EmotionMeta> = {
-  happy: { label: '开心', labelEn: 'Happy', emoji: '😊', color: '#F5B301', rgb: [245, 179, 1], softRgb: [255, 214, 102] },
-  pleasant: { label: '愉悦', labelEn: 'Pleasant', emoji: '🙂', color: '#34B36A', rgb: [52, 179, 106], softRgb: [122, 223, 160] },
+  pleasant: { label: '愉快', labelEn: 'Pleasant', emoji: '😊', color: '#F5B301', rgb: [245, 179, 1], softRgb: [255, 214, 102] },
   sad: { label: '悲伤', labelEn: 'Sad', emoji: '😢', color: '#4C8DF6', rgb: [76, 141, 246], softRgb: [147, 189, 251] },
   angry: { label: '愤怒', labelEn: 'Angry', emoji: '😠', color: '#E5484D', rgb: [229, 72, 77], softRgb: [255, 138, 142] },
   anxious: { label: '焦虑', labelEn: 'Anxious', emoji: '😟', color: '#A855F7', rgb: [168, 85, 247], softRgb: [201, 154, 251] },
-  unwell: { label: '不适', labelEn: 'Unwell', emoji: '🤕', color: '#F97316', rgb: [249, 115, 22], softRgb: [253, 167, 102] },
+  unwell: { label: '反感', labelEn: 'Disgust', emoji: '🤢', color: '#7C9A3B', rgb: [124, 154, 59], softRgb: [174, 199, 111] },
   confused: { label: '疑问', labelEn: 'Curious', emoji: '🤔', color: '#0891B2', rgb: [8, 145, 178], softRgb: [103, 195, 217] },
   neutral: { label: '平静', labelEn: 'Neutral', emoji: '😐', color: '#8A93A3', rgb: [138, 147, 163], softRgb: [190, 197, 208] },
 }

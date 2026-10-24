@@ -5,8 +5,8 @@ What this script does (Issue #2):
 
   * loads assets/model-int8.onnx with onnxruntime (CPU) and
     assets/tokenizer.json with the transformers fast tokenizer;
-  * runs 40 hand-written sentences (20 Chinese + 20 English) covering six
-    unified emotions: happy / pleasant / sad / angry / anxious / neutral;
+  * runs 40 hand-written sentences (20 Chinese + 20 English) covering five
+    unified emotions: pleasant / sad / angry / anxious / neutral;
   * applies **per-element sigmoid** (the model is a multi-label classifier,
     softmax would be wrong) and reads the top-1 raw label;
   * projects the 11 raw probabilities onto the unified dimensions the DSH
@@ -18,18 +18,17 @@ What this script does (Issue #2):
 
 Unified mapping (mirrors the TS plugin, see docs/model-export.md):
 
-    happy   <- max(joy, gratitude)
     pleasant<- max(joy, love, gratitude)
     sad     <- max(sadness, frustration)
     angry   <- max(anger, disgust, contempt, frustration)
     anxious <- max(fear, frustration)
-    unwell  <- sadness * 0.5 + disgust * 0.4   (weighted sum)
+    unwell  <- max(disgust, fear * 0.5)          (decoupled from sad, #32)
     confused<- surprise                        (proxy: the model has no
                                                 confusion/uncertainty label)
     neutral <- neutral
 
 Ties between unified dimensions are broken deterministically in this order:
-happy, pleasant, sad, angry, anxious, unwell, confused, neutral.
+pleasant, sad, angry, anxious, unwell, confused, neutral.
 
 Usage:
 
@@ -64,7 +63,7 @@ LABELS = [
 LABEL_INDEX = {label: idx for idx, label in enumerate(LABELS)}
 
 # Deterministic tie-break order for equal unified scores (documented above).
-TIE_BREAK_ORDER = ["happy", "pleasant", "sad", "angry", "anxious", "unwell", "confused", "neutral"]
+TIE_BREAK_ORDER = ["pleasant", "sad", "angry", "anxious", "unwell", "confused", "neutral"]
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL = REPO_ROOT / "assets" / "model-int8.onnx"
@@ -76,10 +75,10 @@ MIN_ACCURACY = 0.80
 # (language, expected unified dimension, sentence)
 CASES: list[tuple[str, str, str]] = [
     # ------------------------------- Chinese (20) -------------------------------
-    ("zh", "happy", "今天收到录取通知书，我太开心了！"),
-    ("zh", "happy", "谢谢你三年来的帮助，我真的很感激你。"),
-    ("zh", "happy", "宝宝第一次叫妈妈，我高兴得流下了眼泪。"),
-    ("zh", "happy", "我们队赢了决赛，全场都在欢呼庆祝。"),
+    ("zh", "pleasant", "今天收到录取通知书，我太开心了！"),
+    ("zh", "pleasant", "谢谢你三年来的帮助，我真的很感激你。"),
+    ("zh", "pleasant", "宝宝第一次叫妈妈，我高兴得流下了眼泪。"),
+    ("zh", "pleasant", "我们队赢了决赛，全场都在欢呼庆祝。"),
     ("zh", "pleasant", "我真的很爱我的猫，它是我最好的伙伴。"),
     ("zh", "pleasant", "和你在一起的时候，我觉得特别安心、温暖。"),
     ("zh", "pleasant", "我很爱我的家人，他们是我生命中最重要的人。"),
@@ -97,10 +96,10 @@ CASES: list[tuple[str, str, str]] = [
     ("zh", "neutral", "水在一百摄氏度时沸腾。"),
     ("zh", "neutral", "请把文件发到我的邮箱，并在周五前提交。"),
     # ------------------------------- English (20) -------------------------------
-    ("en", "happy", "I got the offer today and I am absolutely thrilled!"),
-    ("en", "happy", "Thank you so much for your support, I really appreciate it."),
-    ("en", "happy", "Our team won the final and everyone is celebrating!"),
-    ("en", "happy", "She said yes and I have never been happier in my life."),
+    ("en", "pleasant", "I got the offer today and I am absolutely thrilled!"),
+    ("en", "pleasant", "Thank you so much for your support, I really appreciate it."),
+    ("en", "pleasant", "Our team won the final and everyone is celebrating!"),
+    ("en", "pleasant", "She said yes and I have never been happier in my life."),
     ("en", "pleasant", "I love my girlfriend and want to spend the rest of my life with her."),
     ("en", "pleasant", "Cuddling with my cat on a rainy Sunday feels wonderful."),
     ("en", "pleasant", "Spending time with my family always fills me with warmth."),
@@ -130,12 +129,11 @@ def unified_scores(probs) -> dict[str, float]:
     """Project the 11 raw multi-label probabilities onto unified dimensions."""
     p = {label: float(probs[LABEL_INDEX[label]]) for label in LABELS}
     return {
-        "happy": max(p["joy"], p["gratitude"]),
         "pleasant": max(p["joy"], p["love"], p["gratitude"]),
         "sad": max(p["sadness"], p["frustration"]),
         "angry": max(p["anger"], p["disgust"], p["contempt"], p["frustration"]),
         "anxious": max(p["fear"], p["frustration"]),
-        "unwell": min(1.0, p["sadness"] * 0.5 + p["disgust"] * 0.4),
+        "unwell": max(p["disgust"], p["fear"] * 0.5),
         "confused": p["surprise"],
         "neutral": p["neutral"],
     }
@@ -350,14 +348,13 @@ def main(argv: list[str] | None = None) -> int:
         },
         "runtime": {**load_runtime_versions(), "threads": args.threads},
         "mapping": {
-            "happy": "max(joy, gratitude)",
-            "pleasant": "max(joy, love, gratitude)",
-            "sad": "max(sadness, frustration)",
+            "pleasant": "max(joy, love, gratitude)  [happy merged into pleasant]",
+            "sad": "max(sadness)",
             "angry": "max(anger, disgust, contempt, frustration)",
-            "anxious": "max(fear, frustration)",
-            "unwell": "sadness*0.5 + disgust*0.4 (clamped to 1.0)",
+            "anxious": "max(fear)",
+            "unwell": "max(disgust, fear*0.5)  [decoupled from sad, issue #32]",
+            "confused": "max(surprise, doubt-heuristic)  [runtime adds doubt; validate.py checks model-side surprise]",
             "neutral": "neutral",
-            "surprise": "unmapped (raw score kept; raw top-1 surprise counts as a miss)",
             "tie_break_order": TIE_BREAK_ORDER,
         },
         "summary": summary,

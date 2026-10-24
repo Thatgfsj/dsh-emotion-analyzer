@@ -16,8 +16,13 @@
 /* 常量区（调参只改这里）                                                     */
 /* ------------------------------------------------------------------------- */
 
-/** 聚合分数低于该阈值的维度视为噪声：整轮无信号时跳过更新，不积累也不衰减。 */
-export const THRESHOLD = 0.3
+/**
+ * 聚合分数低于该阈值的维度视为噪声：整轮无信号时跳过更新，不积累也不衰减。
+ *
+ * 校准记录（issue #30）：模型对“难过”常给 sadness≈0.27、neutral≈0.74，
+ * 0.3 会直接丢弃真实悲伤；中性句的其余标签实测 <0.05，所以降到 0.2 不会误报。
+ */
+export const THRESHOLD = 0.2
 
 /**
  * 每轮先把历史分数乘以该衰减系数，旧情绪随轮次指数衰减，避免永久滞留。
@@ -70,9 +75,8 @@ export type DerivedLabel = (typeof DERIVED_LABELS)[number]
 /** 参与映射的标签：模型原始标签 + 派生信号。 */
 export type ScoredLabel = RawEmotionLabel | DerivedLabel
 
-/** 写入 Session projection 的 8 个统一维度（含 surprise 代理的“疑问”）。 */
+/** 写入 Session projection 的 7 个统一维度（happy 已并入 pleasant，见 issue #30）。 */
 export const EMOTION_DIMENSIONS = [
-  'happy',
   'pleasant',
   'sad',
   'angry',
@@ -102,7 +106,7 @@ export interface EmotionRule {
 /**
  * 统一维度 ← 原始标签的硬编码映射。
  *
- * - happy / pleasant / sad / angry / anxious / neutral 用 `max`：同一维度
+ * - pleasant / sad / angry / anxious / neutral 用 `max`：同一维度
  *   里任一标签高就代表该情绪强，取最大值不会被多个同义标签重复放大。
  * - unwell 用 `wsum`：sadness * 0.5 + disgust * 0.4，表达“低落 + 厌恶”
  *   的混合不适感，权重差异来自人工校准。
@@ -110,12 +114,16 @@ export interface EmotionRule {
  *   uncertainty 标签，surprise 是语义上最接近的可用信号（issue #25）。
  */
 export const EMOTION_MAP: Readonly<Record<EmotionDimension, EmotionRule>> = {
-  happy: { kind: 'max', terms: [['joy', 1], ['gratitude', 1]] },
+  // happy 已并入 pleasant（issue #30）：joy/gratitude/love 共享一个“愉快”维度。
   pleasant: { kind: 'max', terms: [['joy', 1], ['love', 1], ['gratitude', 1]] },
-  sad: { kind: 'max', terms: [['sadness', 1], ['frustration', 1]] },
+  // 精修（issue #30）：frustration 只归 angry，不再同时推高 sad/anxious。
+  sad: { kind: 'max', terms: [['sadness', 1]] },
   angry: { kind: 'max', terms: [['anger', 1], ['disgust', 1], ['contempt', 1], ['frustration', 1]] },
-  anxious: { kind: 'max', terms: [['fear', 1], ['frustration', 1]] },
-  unwell: { kind: 'wsum', terms: [['sadness', 0.5], ['disgust', 0.4]] },
+  anxious: { kind: 'max', terms: [['fear', 1]] },
+  // issue #32：模型没有 sickness 标签；旧式 0.5*sadness+0.4*disgust 与 sad
+  // 共线（r=0.976）。改为 max(disgust, 0.5*fear)：与 sad 解耦（r≈0.22），
+  // “恶心/头晕胃翻”仍能命中，纯悲伤不再点亮。
+  unwell: { kind: 'max', terms: [['disgust', 1], ['fear', 0.5]] },
   // `doubt` 是宿主文本启发式（非模型标签）；surprise 只覆盖“惊讶”，
   // 中文疑问/不确定句需要 doubt 才能命中（见 issue #28）。
   confused: { kind: 'max', terms: [['surprise', 1], ['doubt', 1]] },
@@ -155,10 +163,9 @@ function hasMappedInput(scores: RawScores | null | undefined): boolean {
   })
 }
 
-/** 空投影：8 个维度全为 0。 */
+/** 空投影：7 个维度全为 0。 */
 export function emptyProjection(): EmotionScores {
   return {
-    happy: 0,
     pleasant: 0,
     sad: 0,
     angry: 0,
@@ -180,7 +187,7 @@ export function normalizeProjection(current: Partial<Record<EmotionDimension, nu
 }
 
 /**
- * 聚合原始分数，得到 8 个统一维度的“本轮原始强度”（未做阈值 / 衰减）。
+ * 聚合原始分数，得到 7 个统一维度的“本轮原始强度”（未做阈值 / 衰减）。
  *
  * 只做聚合，不修改入参；结果已钳制到 [0, 1]，可直接用于断言与调试。
  */
@@ -190,8 +197,8 @@ export function aggregate(scores: RawScores | null | undefined): EmotionScores {
     const rule = EMOTION_MAP[dimension]
     let value = 0
     if (rule.kind === 'max') {
-      for (const [label] of rule.terms) {
-        value = Math.max(value, readLabel(scores, label))
+      for (const [label, weight] of rule.terms) {
+        value = Math.max(value, readLabel(scores, label) * weight)
       }
     } else {
       for (const [label, weight] of rule.terms) {
@@ -216,7 +223,7 @@ function decayAll(current: EmotionScores): EmotionScores {
  * 用本轮原始分数更新累积投影。
  *
  * 算法（按顺序）：
- * 1. 聚合：原始标签 + doubt 派生信号 → 8 个统一维度（见 {@link aggregate}）。
+ * 1. 聚合：原始标签 + doubt 派生信号 → 7 个统一维度（见 {@link aggregate}）。
  * 2. 门控：本轮没有任何被映射的输入（空对象 / 全是非法值）
  *    视为“无输入”，所有维度纯衰减；有输入但所有维度聚合值都低于
  *    {@link THRESHOLD} 时视为噪声，直接返回当前状态的副本（不积累、不衰减）。

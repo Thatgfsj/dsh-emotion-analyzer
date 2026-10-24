@@ -152,7 +152,7 @@ export class EmotionMonitorElement extends HTMLElement {
   private readonly scoreRows = new Map<EmotionDimension, ScoreRow>()
 
   private state: EmotionMonitorState = emptyState()
-  private view: ViewMode = 'expanded'
+  private view: ViewMode = 'collapsed'
   private closed = false
   private hasData = false
   private preview = false
@@ -371,7 +371,7 @@ export class EmotionMonitorElement extends HTMLElement {
       this.endPreview()
       this.setCollapsed(false, true)
     })
-    this.badge.addEventListener('pointerenter', () => this.schedulePreview())
+    // Issue #31: no hover auto-preview — the panel opens only on click.
 
     this.addEventListener('pointerleave', () => {
       this.clearPreviewTimer()
@@ -402,7 +402,9 @@ export class EmotionMonitorElement extends HTMLElement {
 
   private restorePreferences(): void {
     this.closed = storageGet(STORAGE_KEYS.closed) === '1'
-    this.view = storageGet(STORAGE_KEYS.collapsed) === '1' ? 'collapsed' : 'expanded'
+    // Issue #31: the widget always starts as the compact emoji badge; the
+    // detailed panel opens only on an explicit click (and collapses on demand).
+    this.view = 'collapsed'
     const savedTrend = deserializeTrend(storageGet(STORAGE_KEYS.trend))
     if (savedTrend.length > 0) this.state = { ...this.state, trend: savedTrend }
     const fallback = this.defaultPosition()

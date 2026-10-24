@@ -55,13 +55,13 @@ function deepFreeze<T>(value: T): T {
 }
 
 test('常量 pinned 在约定值上', () => {
-  assert.equal(THRESHOLD, 0.3)
+  assert.equal(THRESHOLD, 0.2)
   assert.equal(DECAY, 0.85)
   assert.equal(STEP_MAX, 0.25)
   assert.equal(CAP, 1.0)
 })
 
-test('标签与维度集合是真实的 11 标签 / 8 维度', () => {
+test('标签与维度集合是真实的 11 标签 / 7 维度', () => {
   assert.deepEqual(RAW_EMOTION_LABELS, [
     'anger',
     'contempt',
@@ -75,7 +75,7 @@ test('标签与维度集合是真实的 11 标签 / 8 维度', () => {
     'sadness',
     'surprise',
   ])
-  assert.deepEqual(EMOTION_DIMENSIONS, ['happy', 'pleasant', 'sad', 'angry', 'anxious', 'unwell', 'confused', 'neutral'])
+  assert.deepEqual(EMOTION_DIMENSIONS, ['pleasant', 'sad', 'angry', 'anxious', 'unwell', 'confused', 'neutral'])
   // 11 个原始标签全部被消费；surprise 作为“疑问”的代理映射（issue #25）
   const mapped = new Set(EMOTION_DIMENSIONS.flatMap((dimension) => EMOTION_MAP[dimension].terms.map(([label]) => label)))
   for (const label of RAW_EMOTION_LABELS) {
@@ -85,7 +85,6 @@ test('标签与维度集合是真实的 11 标签 / 8 维度', () => {
 
 test('EMOTION_MAP：max 维度取参与标签的最大值', () => {
   const aggregated = aggregate({ joy: 0.9, love: 0.8, gratitude: 0.7, sadness: 0.6, fear: 0.4 })
-  close(aggregated.happy, 0.9)
   close(aggregated.pleasant, 0.9)
   close(aggregated.sad, 0.6)
   close(aggregated.anxious, 0.4)
@@ -93,18 +92,19 @@ test('EMOTION_MAP：max 维度取参与标签的最大值', () => {
   close(aggregated.neutral, 0)
 })
 
-test('EMOTION_MAP：unwell 用加权和 sadness*0.5 + disgust*0.4', () => {
-  close(aggregate({ sadness: 1, disgust: 1 }).unwell, 0.9)
-  close(aggregate({ sadness: 1, disgust: 0.5 }).unwell, 0.7)
-  close(aggregate({ sadness: 0.6 }).unwell, 0.3)
-  close(aggregate({ disgust: 1 }).unwell, 0.4)
-  // 不是简单求和：0.5 + 0.4 才是上界
-  assert.ok(aggregate({ sadness: 1, disgust: 1 }).unwell < 1)
+test('EMOTION_MAP：unwell = max(disgust, 0.5*fear)，与 sad 解耦（issue #32）', () => {
+  close(aggregate({ disgust: 1 }).unwell, 1)
+  close(aggregate({ disgust: 0.7, fear: 1 }).unwell, 0.7)
+  close(aggregate({ fear: 1 }).unwell, 0.5)
+  close(aggregate({ fear: 0.8 }).unwell, 0.4)
+  // 纯悲伤不再点亮“反感”
+  close(aggregate({ sadness: 1 }).unwell, 0)
+  close(aggregate({ sadness: 0.95, disgust: 0 }).unwell, 0)
 })
 
 test('噪声过滤：所有维度都低于 THRESHOLD 时跳过整轮，不积累也不衰减', () => {
-  const current = deepFreeze(initial({ sad: 0.5, happy: 0.2 }))
-  const next = project(current, { sadness: 0.29, frustration: 0.2, joy: 0.1 })
+  const current = deepFreeze(initial({ sad: 0.5, pleasant: 0.2 }))
+  const next = project(current, { sadness: 0.19, frustration: 0.1, joy: 0.1 })
   // 即使输入里有非零噪声，状态也完全保持
   assert.deepEqual(next, current)
   assert.notEqual(next, current, '必须返回新对象')
@@ -112,8 +112,7 @@ test('噪声过滤：所有维度都低于 THRESHOLD 时跳过整轮，不积累
 
 test('噪声过滤：阈值边界（恰好等于 THRESHOLD）算命中', () => {
   const next = project(initial(), { joy: THRESHOLD })
-  close(next.happy, STEP_MAX)
-  close(next.pleasant, STEP_MAX)
+  close(next.pleasant, THRESHOLD)
   // 其余维度未命中 → 衰减（当前为 0）
   close(next.sad, 0)
 })
@@ -163,7 +162,7 @@ test('10 轮 neutral 后 sad < 0.2（旧情绪被衰减）', () => {
 })
 
 test('无输入时衰减到 0', () => {
-  let state = initial({ happy: 1, pleasant: 1, sad: 1, angry: 1, anxious: 1, unwell: 1, neutral: 1 })
+  let state = initial({ pleasant: 1, sad: 1, angry: 1, anxious: 1, unwell: 1, neutral: 1 })
   for (let round = 0; round < 200; round += 1) {
     const next = project(state, {})
     for (const dimension of EMOTION_DIMENSIONS) {
@@ -200,7 +199,7 @@ test('doubt 派生信号映射到 confused（疑问）', () => {
 
 test('边界值：0 / 1 / 超范围原始分数都会被钳制', () => {
   // 全 0：无信号（0 是合法输入但低于阈值）→ 噪声跳过
-  const current = deepFreeze(initial({ happy: 0.4 }))
+  const current = deepFreeze(initial({ pleasant: 0.4 }))
   assert.deepEqual(
     project(current, { joy: 0, sadness: 0, neutral: 0 } as Record<string, number>),
     current,
@@ -217,12 +216,12 @@ test('边界值：0 / 1 / 超范围原始分数都会被钳制', () => {
 
 test('边界值：入参 current 的越界 / 缺失 / 非法值被规范化', () => {
   const next = project(
-    { sad: 2.5, happy: -1, angry: Number.NaN } as Partial<Record<EmotionDimension, number>>,
+    { sad: 2.5, pleasant: -1, angry: Number.NaN } as Partial<Record<EmotionDimension, number>>,
     { joy: 0.9 },
   )
-  // sad 从钳制后的 1 衰减；happy 从 0 起步；angry 从 0 起步
+  // sad 从钳制后的 1 衰减；pleasant 从 0 起步；angry 从 0 起步
   close(next.sad, DECAY)
-  close(next.happy, STEP_MAX)
+  close(next.pleasant, STEP_MAX)
   close(next.angry, 0)
   // 返回对象一定是完整的 7 维
   assert.deepEqual(Object.keys(next).sort(), [...EMOTION_DIMENSIONS].sort())
@@ -230,28 +229,31 @@ test('边界值：入参 current 的越界 / 缺失 / 非法值被规范化', ()
   assert.deepEqual(normalizeProjection(undefined), emptyProjection())
 })
 
-test('wsum 聚合与阈值：只有 unwell 命中时，sad 衰减而 unwell 上升', () => {
+test('unwell 只有 disgust/fear 命中时上升，sad 衰减（已解耦）', () => {
   const current = initial({ sad: 0.6 })
-  // sadness 0.29 低于阈值（sad 不命中），disgust 0.75 让 unwell = 0.145+0.3 = 0.445 命中
-  const next = project(current, { sadness: 0.29, disgust: 0.75 })
-  close(aggregate({ sadness: 0.29, disgust: 0.75 }).unwell, 0.445)
-  close(next.unwell, Math.min(STEP_MAX, 0.445))
+  const next = project(current, { disgust: 0.75, fear: 0.9 })
+  close(aggregate({ disgust: 0.75, fear: 0.9 }).unwell, 0.75)
+  close(next.unwell, Math.min(STEP_MAX, 0.75))
   close(next.sad, 0.6 * DECAY)
+  // 纯 sadness 输入：sad 命中，unwell 不命中而衰减
+  const sadOnly = project(initial({ unwell: 0.8 }), { sadness: 0.9 })
+  close(sadOnly.unwell, 0.8 * DECAY)
+  close(sadOnly.sad, STEP_MAX)
 })
 
 test('命中维度先衰减再加 min(raw, STEP_MAX)', () => {
-  const current = initial({ happy: 0.8 })
-  // 当前常量下 THRESHOLD(0.3) > STEP_MAX(0.25)，因此任何命中的加分都封顶在 STEP_MAX。
-  close(project(current, { joy: 0.6 }).happy, 0.8 * DECAY + STEP_MAX)
-  close(project(current, { joy: 0.31 }).happy, 0.8 * DECAY + STEP_MAX)
+  const current = initial({ pleasant: 0.8 })
+  // 当前常量下 THRESHOLD(0.2) < STEP_MAX(0.25)，raw 0.6 → 加 0.25 封顶。
+  close(project(current, { joy: 0.6 }).pleasant, 0.8 * DECAY + STEP_MAX)
+  close(project(current, { joy: 0.31 }).pleasant, 0.8 * DECAY + STEP_MAX)
   // 低于阈值 → 不命中，只衰减（需要本轮存在其它命中维度，否则整轮会被判为噪声跳过）
-  const mixed = project(current, { joy: 0.29, sadness: 0.9 })
-  close(mixed.happy, 0.8 * DECAY)
+  const mixed = project(current, { joy: 0.15, sadness: 0.9 })
+  close(mixed.pleasant, 0.8 * DECAY)
   close(mixed.sad, STEP_MAX)
 })
 
 test('纯函数：不修改入参，始终返回新对象', () => {
-  const current = deepFreeze(initial({ sad: 0.5, happy: 0.3 }))
+  const current = deepFreeze(initial({ sad: 0.5, pleasant: 0.3 }))
   const raw = deepFreeze({ sadness: 0.9, joy: 0.5 } as Record<string, number>)
   const snapshotCurrent = JSON.stringify(current)
   const snapshotRaw = JSON.stringify(raw)
