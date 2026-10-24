@@ -60,6 +60,8 @@ export interface ModelPreset {
   installed: boolean
   downloadable: boolean
   needsExport: boolean
+  /** Built-in default preset (Horizon Small). */
+  default?: boolean
   recommended: boolean
   expectedExportPath?: string
 }
@@ -273,7 +275,8 @@ export function normalizePreset(raw: unknown): ModelPreset | null {
     installed,
     downloadable: firstBoolean(raw.downloadable, raw.canDownload) !== false,
     needsExport: firstBoolean(raw.needsExport, raw.requiresExport) === true,
-    recommended: firstBoolean(raw.recommended, raw.default, raw.isDefault) === true,
+    default: firstBoolean(raw.default, raw.isDefault) === true,
+    recommended: firstBoolean(raw.recommended) === true,
     expectedExportPath: firstString(raw.expectedExportPath, raw.exportPath),
   }
 }

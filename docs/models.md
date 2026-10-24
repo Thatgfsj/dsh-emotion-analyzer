@@ -6,10 +6,10 @@
 
 | id | 模型 | 许可 | 体积 | 语言 | 标签 | 映射 profile | 状态 |
 |---|---|---|---|---|---|---|---|
-| `horizon-small`（默认） | [Horizon-Labs/multilingual-emotions-small](https://huggingface.co/Horizon-Labs/multilingual-emotions-small) | Apache-2.0 | 268,449,278 B（约 256 MiB） | 36 | 28（GoEmotions） | `go-emotions-28` | 官方 INT8 ONNX，可下载 |
-| `horizon-base` | [Horizon-Labs/multilingual-emotions-base](https://huggingface.co/Horizon-Labs/multilingual-emotions-base) | Apache-2.0 | 641,205,891 B（约 612 MiB） | 36 | 28 | `go-emotions-28` | 官方 INT8 ONNX，可下载 |
-| `legacy-tabularisai` | [tabularisai/multilingual-emotion-classification](https://huggingface.co/tabularisai/multilingual-emotion-classification) | **CC-BY-NC-4.0**（非商业） | 278,963,213 B | 23 | 11 | `legacy-11` | 包内 `assets/`，回退资产，**不可删除** |
-| `zh-johnson-small` | [Johnson8187/Chinese-Emotion-Small](https://huggingface.co/Johnson8187/Chinese-Emotion-Small) | MIT | 待导出（0 表示未知） | zh | 8（LABEL_0..7） | `zh-8` | **needsExport**：无官方 ONNX，下载 API 明确报错；等导出脚本落地 |
+| `horizon-small`（**默认**） | [Horizon-Labs/multilingual-emotions-small](https://huggingface.co/Horizon-Labs/multilingual-emotions-small) | Apache-2.0 | 268,449,278 B（约 256 MiB） | 36 | 28（GoEmotions） | `go-emotions-28` | 官方 INT8 ONNX，可下载 |
+| `horizon-base`（**推荐**） | [Horizon-Labs/multilingual-emotions-base](https://huggingface.co/Horizon-Labs/multilingual-emotions-base) | Apache-2.0 | 641,205,891 B（约 612 MiB） | 36 | 28 | `go-emotions-28` | 官方 INT8 ONNX，可下载 |
+| `legacy-tabularisai`（**回退默认**） | [tabularisai/multilingual-emotion-classification](https://huggingface.co/tabularisai/multilingual-emotion-classification) | **CC-BY-NC-4.0**（非商业） | 278,963,213 B | 23 | 11 | `legacy-11` | 包内 `assets/`，回退资产，**不可删除** |
+| `zh-johnson-small`（**中文**，需本地导出；建议大肥鱼帮助） | [Johnson8187/Chinese-Emotion-Small](https://huggingface.co/Johnson8187/Chinese-Emotion-Small) | MIT | 待导出（0 表示未知） | zh | 8（LABEL_0..7） | `zh-8` | **needsExport**：无官方 ONNX，下载 API 明确报错；等导出脚本落地 |
 
 下载 URL 固定为 Hugging Face `resolve/main`：
 

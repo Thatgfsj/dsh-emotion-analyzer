@@ -60,9 +60,9 @@ curl http://127.0.0.1:<port>/api/emotion-analyzer/v1/state
 
 | 预设 | 许可 | 体积 | 语言 | 标签 | 说明 |
 |---|---|---|---|---|---|
-| `horizon-small`（默认） | Apache-2.0 | 268 MB | 36 | 28 | 官方 INT8，可在线下载 |
+| `horizon-small`（**默认**） | Apache-2.0 | 268 MB | 36 | 28 | 官方 INT8，可在线下载 |
 | `horizon-base` | Apache-2.0 | 641 MB | 36 | 28 | 更准但更慢/更大 |
-| `legacy-tabularisai` | CC-BY-NC-4.0 | 279 MB | 23 | 11 | 包内 assets，回退用，不可删除 |
+| `legacy-tabularisai`（**回退默认**） | CC-BY-NC-4.0 | 279 MB | 23 | 11 | 包内 assets，回退用，不可删除 |
 | `zh-johnson-small` | MIT | 待导出 | zh | 8 | needsExport（暂无官方 ONNX） |
 
 - 设置持久化在 `$DSH_HOME/emotion-analyzer/config.json`；模型下载到同目录 `models/<id>/`，不进仓库。
