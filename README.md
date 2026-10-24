@@ -33,7 +33,7 @@ python3 scripts/validate.py         # 20 中文 + 20 英文，top-1 ≥ 80%
 
 ## 可调参数
 
-映射层参数集中在 `src/mapping.ts` 顶部：`THRESHOLD`、`DECAY`、`STEP_MAX`、`CAP`。详见文档（随 #8 更新）。
+映射层参数集中在 `src/mapping.ts` 顶部：`THRESHOLD`、`DECAY`、`STEP_MAX`、`CAP`。映射规则与累积公式见[架构文档的“情绪映射与累积”](docs/architecture.md#情绪映射与累积srcmappingts)。
 
 ## 文档
 
