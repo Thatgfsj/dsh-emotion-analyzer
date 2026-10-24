@@ -121,7 +121,9 @@ export function makeEmotionProjection(
 ): EmotionProjectionDefinition {
   return {
     key: 'emotion',
-    stateVersion: 1,
+    // 2: added the `confused` dimension (surprise proxy); invalidates old
+    // persisted projection-cache rows so logs refold with the new mapping.
+    stateVersion: 2,
     stateSchema: emotionStateSchema,
     init: emptyEmotionState,
     apply(state, event) {

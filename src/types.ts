@@ -14,6 +14,7 @@ export const UNIFIED_DIMENSIONS = [
   'angry',
   'anxious',
   'unwell',
+  'confused',
   'neutral',
 ] as const
 

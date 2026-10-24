@@ -111,7 +111,7 @@ python3 scripts/validate.py
 
 ## 6. 统一维度映射
 
-模型输出 11 个独立概率，插件对上层只暴露 7 个统一维度（另有 surprise 暂不映射，仅保留原始分）：
+模型输出 11 个独立概率，插件对上层暴露 8 个统一维度（其中“疑问”由 surprise 代理，模型本身没有 confusion/uncertainty 标签）：
 
 | 统一维度 | 计算方式 |
 |---|---|
@@ -121,12 +121,13 @@ python3 scripts/validate.py
 | angry | max(anger, disgust, contempt, frustration) |
 | anxious | max(fear, frustration) |
 | unwell | sadness × 0.5 + disgust × 0.4（加权和，封顶 1.0） |
+| confused（疑问） | max(surprise) — **代理指标** |
 | neutral | neutral |
 
 说明：
 
-- **top-1 统一维度存在并列**（例如只有 joy 高时 happy 与 pleasant 同分），实现里用固定顺序破平：happy → pleasant → sad → angry → anxious → unwell → neutral。
-- 原始 top-1 是 `surprise` 时按**未命中**计（surprise 尚未映射），即使其它维度分数不低。测试集刻意避开纯惊讶句。
+- **top-1 统一维度存在并列**（例如只有 joy 高时 happy 与 pleasant 同分），实现里用固定顺序破平：happy → pleasant → sad → angry → anxious → unwell → confused → neutral。
+- `confused` 是 **surprise 的代理指标**：模型没有真正的 confusion/uncertainty 标签，语义上最接近的是 surprise；文档与 UI 都按“疑问”展示，不代表模型具备真实困惑分类能力。测试集仍以六类基础情绪为主。
 - 该映射必须与 TS 端 `src/mapping.ts`（Issue #4）保持一致；改动时同步 `scripts/validate.py` 与本文。
 
 ## 7. tokenizer fixture（TS 端逐 token 对齐）

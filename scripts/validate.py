@@ -24,13 +24,12 @@ Unified mapping (mirrors the TS plugin, see docs/model-export.md):
     angry   <- max(anger, disgust, contempt, frustration)
     anxious <- max(fear, frustration)
     unwell  <- sadness * 0.5 + disgust * 0.4   (weighted sum)
+    confused<- surprise                        (proxy: the model has no
+                                                confusion/uncertainty label)
     neutral <- neutral
-    surprise has no unified dimension yet (raw score is kept in the report).
 
 Ties between unified dimensions are broken deterministically in this order:
-happy, pleasant, sad, angry, anxious, unwell, neutral. A sentence whose raw
-top-1 label is surprise counts as a miss (surprise is not mapped yet), even if
-another dimension happens to score high.
+happy, pleasant, sad, angry, anxious, unwell, confused, neutral.
 
 Usage:
 
@@ -65,7 +64,7 @@ LABELS = [
 LABEL_INDEX = {label: idx for idx, label in enumerate(LABELS)}
 
 # Deterministic tie-break order for equal unified scores (documented above).
-TIE_BREAK_ORDER = ["happy", "pleasant", "sad", "angry", "anxious", "unwell", "neutral"]
+TIE_BREAK_ORDER = ["happy", "pleasant", "sad", "angry", "anxious", "unwell", "confused", "neutral"]
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL = REPO_ROOT / "assets" / "model-int8.onnx"
@@ -137,6 +136,7 @@ def unified_scores(probs) -> dict[str, float]:
         "angry": max(p["anger"], p["disgust"], p["contempt"], p["frustration"]),
         "anxious": max(p["fear"], p["frustration"]),
         "unwell": min(1.0, p["sadness"] * 0.5 + p["disgust"] * 0.4),
+        "confused": p["surprise"],
         "neutral": p["neutral"],
     }
 
@@ -273,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         probs, raw_top_label, tokenize_ms, infer_ms = run_inference(session, tokenizer, text)
         scores = unified_scores(probs)
         predicted = top_unified(scores)
-        hit = predicted == expected and raw_top_label != "surprise"
+        hit = predicted == expected
         results.append(
             {
                 "index": index,

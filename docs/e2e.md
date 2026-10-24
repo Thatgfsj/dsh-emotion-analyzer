@@ -46,3 +46,12 @@ CDP 断言（真实页面）：
 - Node 22 / Windows / macOS 下的 `onnxruntime-node`、`tokenizers` 安装未在本机复跑（仅 Linux + Node 24）。
 - DSH 设置页的开关行只做了代码路径与注册验证，未在真实页面打开 Settings 截图。
 - 多标签页、prefers-reduced-motion、隐私模式 localStorage 降级：代码已处理，未逐项截图。
+
+## 0.1.1 用户反馈修复验证
+
+| 项 | 结果 |
+|---|---|
+| 新增“疑问”维度 | 真实页面 widget 显示 8 条分数条，含「疑问 0%」；映射为 surprise 代理 |
+| 关闭 → 重开 | 点击 [×] 后 widget 隐藏、出现「💗 情绪」按钮、localStorage visible=0；点击后 widget 恢复、visible=1 |
+| slot 注册 | 真实页面 console 探针确认 `shell.overlay`、`settings.section`、`settings.general.item`、`conversation.session.header.utilities` 四个 inject 回调全部触发 |
+| 控制台错误 | 0 |
