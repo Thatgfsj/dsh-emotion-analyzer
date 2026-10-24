@@ -2,10 +2,16 @@
 # Install into a venv: python3 -m venv .venv && . .venv/bin/activate
 # CPU-only torch wheel (keep the index URL to avoid CUDA downloads):
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch>=2.6
-transformers>=4.48
-optimum[exporters]>=1.24
-onnx>=1.17
-onnxruntime>=1.20
-huggingface_hub>=0.26
-numpy>=1.26
+
+# Pinned to the versions this pipeline was actually built and validated with
+# (Python 3.13, CPU-only). Bump deliberately and re-run scripts/validate.py.
+torch==2.6.0+cpu
+transformers==4.53.3
+tokenizers==0.21.4
+optimum[exporters]==1.27.0
+onnx==1.18.0
+onnxruntime==1.23.2
+huggingface-hub==0.34.4
+numpy==2.2.6
+protobuf==5.29.5
+sentencepiece==0.2.1

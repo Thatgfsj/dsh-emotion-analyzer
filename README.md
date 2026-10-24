@@ -22,14 +22,18 @@ dsh plugin --profile web add /path/to/dsh-emotion-analyzer
 
 ## 模型导出
 
+模型权重不提交进仓库（CC-BY-NC-4.0，>100 MB），首次使用需在本地导出（Python 3.13 + CPU）：
+
 ```sh
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r scripts/requirements.txt
-python3 scripts/export_model.py     # -> assets/model-int8.onnx + assets/tokenizer.json
+python3 scripts/export_model.py     # 幂等；加 --force 完整重建
 python3 scripts/validate.py         # 20 中文 + 20 英文，top-1 ≥ 80%
 ```
 
-模型 `tabularisai/multilingual-emotion-classification` 权重许可证为 **CC-BY-NC-4.0**（非商业）；本仓库代码为 MIT。权重不提交进仓库。
+产物：`assets/model-int8.onnx`（266 MiB，Optimum 导出 + onnxruntime 动态 INT8 量化）与 `assets/tokenizer.json`（16.3 MiB）。本机实测 CPU 单条推理约 **6 ms**（i5-1240P，4 线程，含分词；两次运行 6.1–6.9 ms），`validate.py` 40/40 通过（中文 20/20、英文 20/20）。
+
+模型 `tabularisai/multilingual-emotion-classification`（XLM-RoBERTa-base，278M，11 标签多标签）权重许可证为 **CC-BY-NC-4.0**（非商业）；本仓库代码为 MIT。完整流程、量化方法、实测数据与常见坑见 [模型导出与量化](docs/model-export.md)。
 
 ## 可调参数
 
@@ -38,6 +42,7 @@ python3 scripts/validate.py         # 20 中文 + 20 英文，top-1 ≥ 80%
 ## 文档
 
 - [架构](docs/architecture.md)
+- [模型导出与量化](docs/model-export.md)
 - [DSH 宿主 API 校准](docs/calibration.md)
 - [贡献规则](CONTRIBUTING.md)
 
