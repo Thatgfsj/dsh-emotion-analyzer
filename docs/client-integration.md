@@ -9,6 +9,11 @@
 | `shell.overlay` | root（list） | 悬浮框；React portal 到 `document.body`，SPA 切换路由后仍在 |
 | `conversation.session.header.utilities` | session（list） | 隐形桥：`useProjection('emotion')` → 模块级 store |
 | `settings.general.item` | root（list） | Settings → General 的「显示情绪监测悬浮框」开关 |
+| `plugins.bundle.config` | root（keyed，key=包名） | 插件管理页（Bundle 详情）内嵌完整设置区：显隐/重置 + 模型管理/下载/切换/测试（#50） |
+
+插件详情页配置区（真实页面验证，v0.2.1）：
+
+![plugin page config](screenshots/plugin-page-config.png)
 | `settings.section` | root（section） | Settings → 情绪分析器 / Emotion Monitor 页面：显隐/重置 + **模型管理区**（#40） |
 
 `apply(ctx)` 里通过 `ctx.effect(() => ctx.slots.inject(name, () => ctx.slots.register(...)))` 注册，全部随插件 fiber 卸载自动清理（`inject` 回调返回合并 disposer）。
