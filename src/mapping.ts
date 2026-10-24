@@ -201,17 +201,21 @@ function decayAll(current: EmotionScores): EmotionScores {
  * 3. 命中（聚合值 ≥ THRESHOLD）：next = min(CAP, old * DECAY + min(raw, STEP_MAX))。
  * 4. 未命中（聚合值 < THRESHOLD）：next = old * DECAY。
  * 5. 钳制到 [0, 1] 并返回新对象；入参不会被修改。
+ *
+ * 公共签名固定为 `Record<string, number>`（与 src/index.ts / src/projection.ts
+ * 的宿主集成契约一致，见接口对齐约定）；运行时额外容忍缺失键、越界值与
+ * `null` / `undefined`，方便 projection 冷启动。
  */
 export function updateProjection(
-  current: Partial<Record<EmotionDimension, number>> | null | undefined,
-  rawScores: RawScores | null | undefined,
-): EmotionScores {
-  const base = normalizeProjection(current)
+  current: Record<string, number>,
+  rawScores: Record<string, number>,
+): Record<string, number> {
+  const base = normalizeProjection(current as Partial<Record<EmotionDimension, number>> | null | undefined)
 
   // 2a. 没有可用的映射输入 → 纯衰减（“无输入衰减到 0”）。
-  if (!hasMappedInput(rawScores)) return decayAll(base)
+  if (!hasMappedInput(rawScores as RawScores)) return decayAll(base)
 
-  const raw = aggregate(rawScores)
+  const raw = aggregate(rawScores as RawScores)
 
   // 2b. 有输入但全维度低于阈值 → 判为噪声，跳过本次更新。
   if (!EMOTION_DIMENSIONS.some((dimension) => raw[dimension] >= THRESHOLD)) {

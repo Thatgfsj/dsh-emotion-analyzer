@@ -37,6 +37,14 @@ function initial(overrides: Partial<EmotionScores> = {}): EmotionScores {
   return { ...emptyProjection(), ...overrides }
 }
 
+/**
+ * updateProjection 的公共签名固定为 Record<string, number>（宿主集成契约）；
+ * 测试里收窄回完整维度类型，方便按 .sad / .happy 断言。
+ */
+function project(current: Record<string, number>, raw: Record<string, number>): EmotionScores {
+  return updateProjection(current, raw) as EmotionScores
+}
+
 /** 深冻结，用来证明纯函数不修改入参。 */
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === 'object') {
@@ -97,14 +105,14 @@ test('EMOTION_MAP：unwell 用加权和 sadness*0.5 + disgust*0.4', () => {
 
 test('噪声过滤：所有维度都低于 THRESHOLD 时跳过整轮，不积累也不衰减', () => {
   const current = deepFreeze(initial({ sad: 0.5, happy: 0.2 }))
-  const next = updateProjection(current, { sadness: 0.29, frustration: 0.2, joy: 0.1 })
+  const next = project(current, { sadness: 0.29, frustration: 0.2, joy: 0.1 })
   // 即使输入里有非零噪声，状态也完全保持
   assert.deepEqual(next, current)
   assert.notEqual(next, current, '必须返回新对象')
 })
 
 test('噪声过滤：阈值边界（恰好等于 THRESHOLD）算命中', () => {
-  const next = updateProjection(initial(), { joy: THRESHOLD })
+  const next = project(initial(), { joy: THRESHOLD })
   close(next.happy, STEP_MAX)
   close(next.pleasant, STEP_MAX)
   // 其余维度未命中 → 衰减（当前为 0）
@@ -115,7 +123,7 @@ test('连续 5 轮 sad：单调上升且不超过 CAP', () => {
   let state = emptyProjection()
   const history: number[] = []
   for (let round = 0; round < 5; round += 1) {
-    state = updateProjection(state, { sadness: 0.95 })
+    state = project(state, { sadness: 0.95 })
     history.push(state.sad)
     assert.ok(state.sad <= CAP, `第 ${round + 1} 轮 sad 超过 CAP: ${state.sad}`)
     assert.ok(state.sad >= 0)
@@ -135,7 +143,7 @@ test('10 轮 neutral 后 sad < 0.2（旧情绪被衰减）', () => {
   // 先积累到 0.5，再连续 10 轮 neutral
   let state = initial({ sad: 0.5 })
   for (let round = 0; round < 10; round += 1) {
-    state = updateProjection(state, { neutral: 0.95 })
+    state = project(state, { neutral: 0.95 })
   }
   const expected = 0.5 * DECAY ** 10
   close(state.sad, expected)
@@ -146,7 +154,7 @@ test('10 轮 neutral 后 sad < 0.2（旧情绪被衰减）', () => {
 test('无输入时衰减到 0', () => {
   let state = initial({ happy: 1, pleasant: 1, sad: 1, angry: 1, anxious: 1, unwell: 1, neutral: 1 })
   for (let round = 0; round < 200; round += 1) {
-    const next = updateProjection(state, {})
+    const next = project(state, {})
     for (const dimension of EMOTION_DIMENSIONS) {
       assert.ok(next[dimension] <= state[dimension], `${dimension} 不应上升`)
     }
@@ -160,35 +168,35 @@ test('无输入时衰减到 0', () => {
 test('未知标签 / surprise / 非法值被安全忽略', () => {
   const current = deepFreeze(initial({ sad: 0.5 }))
   // 未知标签：不参与聚合；其余映射标签都低于阈值 → 噪声跳过
-  const unknown = { joy: 0.1, bogus: 0.99 } as unknown as RawScores
-  assert.deepEqual(updateProjection(current, unknown), current)
+  const unknown = { joy: 0.1, bogus: 0.99 } as unknown as Record<string, number>
+  assert.deepEqual(project(current, unknown), current)
   // 只有 surprise：已知但未映射 → 视为无输入，走衰减
-  const surpriseOnly = updateProjection(current, { surprise: 0.99 })
+  const surpriseOnly = project(current, { surprise: 0.99 })
   close(surpriseOnly.sad, 0.5 * DECAY)
   // NaN / Infinity 视为非法值
-  assert.deepEqual(updateProjection(current, { joy: Number.NaN } as RawScores), initial({ sad: 0.5 * DECAY }))
-  assert.deepEqual(updateProjection(current, { joy: Number.POSITIVE_INFINITY } as RawScores), initial({ sad: 0.5 * DECAY }))
+  assert.deepEqual(project(current, { joy: Number.NaN } as Record<string, number>), initial({ sad: 0.5 * DECAY }))
+  assert.deepEqual(project(current, { joy: Number.POSITIVE_INFINITY } as Record<string, number>), initial({ sad: 0.5 * DECAY }))
 })
 
 test('边界值：0 / 1 / 超范围原始分数都会被钳制', () => {
   // 全 0：无信号（0 是合法输入但低于阈值）→ 噪声跳过
   const current = deepFreeze(initial({ happy: 0.4 }))
   assert.deepEqual(
-    updateProjection(current, { joy: 0, sadness: 0, neutral: 0 } as RawScores),
+    project(current, { joy: 0, sadness: 0, neutral: 0 } as Record<string, number>),
     current,
   )
   // 超范围正数按 1 处理，单轮加分仍受 STEP_MAX 限制
-  close(updateProjection(emptyProjection(), { sadness: 5 } as RawScores).sad, STEP_MAX)
+  close(project(emptyProjection(), { sadness: 5 } as Record<string, number>).sad, STEP_MAX)
   // 超范围负数按 0 处理 → 低于阈值 → 噪声跳过
-  assert.deepEqual(updateProjection(current, { sadness: -3 } as RawScores), current)
+  assert.deepEqual(project(current, { sadness: -3 } as Record<string, number>), current)
   // 全 1：多轮后停在 CAP
   let state = emptyProjection()
-  for (let round = 0; round < 50; round += 1) state = updateProjection(state, { sadness: 1 })
+  for (let round = 0; round < 50; round += 1) state = project(state, { sadness: 1 })
   assert.equal(state.sad, CAP)
 })
 
 test('边界值：入参 current 的越界 / 缺失 / 非法值被规范化', () => {
-  const next = updateProjection(
+  const next = project(
     { sad: 2.5, happy: -1, angry: Number.NaN } as Partial<Record<EmotionDimension, number>>,
     { joy: 0.9 },
   )
@@ -205,7 +213,7 @@ test('边界值：入参 current 的越界 / 缺失 / 非法值被规范化', ()
 test('wsum 聚合与阈值：只有 unwell 命中时，sad 衰减而 unwell 上升', () => {
   const current = initial({ sad: 0.6 })
   // sadness 0.29 低于阈值（sad 不命中），disgust 0.75 让 unwell = 0.145+0.3 = 0.445 命中
-  const next = updateProjection(current, { sadness: 0.29, disgust: 0.75 })
+  const next = project(current, { sadness: 0.29, disgust: 0.75 })
   close(aggregate({ sadness: 0.29, disgust: 0.75 }).unwell, 0.445)
   close(next.unwell, Math.min(STEP_MAX, 0.445))
   close(next.sad, 0.6 * DECAY)
@@ -214,28 +222,28 @@ test('wsum 聚合与阈值：只有 unwell 命中时，sad 衰减而 unwell 上�
 test('命中维度先衰减再加 min(raw, STEP_MAX)', () => {
   const current = initial({ happy: 0.8 })
   // 当前常量下 THRESHOLD(0.3) > STEP_MAX(0.25)，因此任何命中的加分都封顶在 STEP_MAX。
-  close(updateProjection(current, { joy: 0.6 }).happy, 0.8 * DECAY + STEP_MAX)
-  close(updateProjection(current, { joy: 0.31 }).happy, 0.8 * DECAY + STEP_MAX)
+  close(project(current, { joy: 0.6 }).happy, 0.8 * DECAY + STEP_MAX)
+  close(project(current, { joy: 0.31 }).happy, 0.8 * DECAY + STEP_MAX)
   // 低于阈值 → 不命中，只衰减（需要本轮存在其它命中维度，否则整轮会被判为噪声跳过）
-  const mixed = updateProjection(current, { joy: 0.29, sadness: 0.9 })
+  const mixed = project(current, { joy: 0.29, sadness: 0.9 })
   close(mixed.happy, 0.8 * DECAY)
   close(mixed.sad, STEP_MAX)
 })
 
 test('纯函数：不修改入参，始终返回新对象', () => {
   const current = deepFreeze(initial({ sad: 0.5, happy: 0.3 }))
-  const raw = deepFreeze({ sadness: 0.9, joy: 0.5 } as RawScores)
+  const raw = deepFreeze({ sadness: 0.9, joy: 0.5 } as Record<string, number>)
   const snapshotCurrent = JSON.stringify(current)
   const snapshotRaw = JSON.stringify(raw)
-  const next = updateProjection(current, raw)
+  const next = project(current, raw)
   assert.notEqual(next, current)
   assert.equal(JSON.stringify(current), snapshotCurrent)
   assert.equal(JSON.stringify(raw), snapshotRaw)
   // 噪声分支 / 衰减分支同样不能改入参
-  const noisy = updateProjection(current, deepFreeze({ sadness: 0.1 } as RawScores))
+  const noisy = project(current, deepFreeze({ sadness: 0.1 } as Record<string, number>))
   assert.notEqual(noisy, current)
   assert.equal(JSON.stringify(current), snapshotCurrent)
-  const decayed = updateProjection(current, null)
+  const decayed = project(current, null as unknown as Record<string, number>)
   assert.notEqual(decayed, current)
   assert.equal(JSON.stringify(current), snapshotCurrent)
 })
