@@ -200,3 +200,11 @@ npm run build      # demo/widget.iife.js
 2. 启动 `google-chrome --headless=new --remote-debugging-port=0`；
 3. 打开 `demo/index.html?theme=light`，等待渲染后 `Page.captureScreenshot`；
 4. 通过 `Runtime.evaluate` / `Input.dispatchMouseEvent` 验证折叠、hover、拖拽、关闭与主题，并输出 `docs/screenshots/*.png`（每张 < 200KB）。
+
+## 真实 DSH 页面验证（emo-web profile）
+
+Headless Chrome CDP 在真实 DSH Web 页面验证：
+
+- `<emotion-monitor>` 正常升级（修复前构造函数写宿主属性导致 `NotSupportedError`，页面只有 HTMLUnknownElement —— 见 #20）。
+- 展开态截图：[real-page-expanded.png](screenshots/real-page-expanded.png)；折叠徽章截图：[real-page-collapsed.png](screenshots/real-page-collapsed.png)。
+- 点击折叠 → `data-view=collapsed`、48×48、😐 徽章；hover 出现预览；点击徽章恢复展开。
