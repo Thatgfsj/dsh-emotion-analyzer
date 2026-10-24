@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>情绪监测器 · Shadow DOM Demo</title>
+  <style>
+    :root {
+      --page-bg: #0e1116;
+      --page-fg: #d7dee9;
+      --page-muted: #8b95a5;
+      --page-card: rgba(255, 255, 255, 0.04);
+      --page-border: rgba(255, 255, 255, 0.10);
+      --page-accent: #7aa2ff;
+      color-scheme: dark;
+    }
+
+    :root[data-theme='light'] {
+      --page-bg: #edf1f7;
+      --page-fg: #1c2533;
+      --page-muted: #5b6778;
+      --page-card: rgba(15, 23, 42, 0.03);
+      --page-border: rgba(15, 23, 42, 0.12);
+      --page-accent: #3d6ae0;
+      color-scheme: light;
+    }
+
+    /* ==================================================================
+       故意写得很“脏”的宿主全局样式，用来验证 Shadow DOM 隔离。
+       悬浮框内部不应受这些规则影响（按钮不该是荧光粉虚线、文字不该变红、
+       画布不该带 lime 描边、字体不该全部变成等宽）。
+       ================================================================== */
+    * { font-family: monospace; }
+    div { color: red; }
+    button {
+      background: hotpink;
+      color: white;
+      border: 2px dashed magenta;
+      border-radius: 0;
+    }
+    canvas { outline: 3px solid lime; }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+    }
+
+    body {
+      min-height: 100vh;
+      background: var(--page-bg);
+      color: var(--page-fg);
+      transition: background-color 200ms ease, color 200ms ease;
+    }
+
+    main {
+      max-width: 720px;
+      padding: 44px 40px 64px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 22px;
+      letter-spacing: 0.01em;
+    }
+
+    .lede {
+      margin: 0 0 18px;
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--page-muted);
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 22px;
+    }
+
+    .chip {
+      padding: 4px 9px;
+      border: 1px solid var(--page-border);
+      border-radius: 999px;
+      font-size: 11px;
+      color: var(--page-muted);
+      background: var(--page-card);
+    }
+
+    section.card {
+      margin-bottom: 16px;
+      padding: 16px;
+      border: 1px solid var(--page-border);
+      border-radius: 12px;
+      background: var(--page-card);
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--page-muted);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .controls button {
+      padding: 7px 12px;
+      border: 1px solid var(--page-border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--page-fg);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .controls button:hover {
+      border-color: var(--page-accent);
+      color: var(--page-accent);
+    }
+
+    .controls button:active {
+      transform: translateY(1px);
+    }
+
+    .host-sample {
+      margin: 0 0 8px;
+      color: red;
+      line-height: 1.7;
+    }
+
+    .note {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.8;
+      color: var(--page-muted);
+    }
+
+    .note code {
+      color: var(--page-accent);
+    }
+
+    #status {
+      color: var(--page-fg);
+      font-size: 12px;
+    }
+
+    #eventlog {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px dashed var(--page-border);
+      border-radius: 8px;
+      font-size: 11px;
+      line-height: 1.7;
+      color: var(--page-muted);
+      min-height: 20px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>DSH 情绪监测器 · Shadow DOM Demo</h1>
+    <p class="lede">
+      页面右侧是 <code>&lt;emotion-monitor&gt;</code> 自定义元素。所有 UI 都渲染在
+      open Shadow Root 里；本页故意注入了红色 div、等宽字体、荧光粉虚线按钮和
+      lime 画布描边，用来验证样式没有穿透进去。
+    </p>
+
+    <div class="chips">
+      <span class="chip">Custom Element</span>
+      <span class="chip">Shadow DOM</span>
+      <span class="chip">canvas sparkline</span>
+      <span class="chip">localStorage</span>
+      <span class="chip">pointer events</span>
+    </div>
+
+    <section class="card">
+      <h2>控制台</h2>
+      <div class="controls">
+        <button type="button" data-demo="happy">😊 新一轮 · 开心</button>
+        <button type="button" data-demo="sad">😢 新一轮 · 伤心</button>
+        <button type="button" data-demo="neutral">😐 新一轮 · 中性</button>
+        <button type="button" data-demo="lang-zh">语言：中文</button>
+        <button type="button" data-demo="lang-en">语言：English</button>
+        <button type="button" data-demo="theme-system">主题：跟随系统</button>
+        <button type="button" data-demo="theme-light">主题：浅色</button>
+        <button type="button" data-demo="theme-dark">主题：深色</button>
+        <button type="button" data-demo="collapse">折叠为徽章</button>
+        <button type="button" data-demo="expand">展开面板</button>
+        <button type="button" data-demo="hide">关闭</button>
+        <button type="button" data-demo="show">重新打开</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>宿主全局 CSS 隔离证明</h2>
+      <p class="host-sample">
+        这是一个普通的宿主 div：受 <code>div { color: red }</code> 与
+        <code>* { font-family: monospace }</code> 影响，应为红色等宽字体。
+      </p>
+      <p class="note">
+        右侧悬浮框使用了正常的系统字体、灰蓝配色和圆角按钮。若悬浮框也变成红色
+        等宽字体 / 荧光粉按钮 / lime 画布描边，说明 Shadow DOM 隔离失败。
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>宿主状态</h2>
+      <div id="status">初始化中…</div>
+      <div id="eventlog">等待 CustomEvent…</div>
+      <p class="note" style="margin-top: 10px">
+        拖拽标题栏可移动悬浮框，位置、折叠、关闭状态和最近 30 轮趋势都会写入
+        <code>localStorage</code>（键名前缀 <code>dsh-emotion-monitor:</code>）。
+        截图参数：<code>?theme=dark&amp;view=collapsed</code>。
+      </p>
+    </section>
+  </main>
+
+  <emotion-monitor id="monitor"></emotion-monitor>
+
+  <script src="./widget.iife.js"></script>
+  <script>
+    (function () {
+      var statusEl = document.getElementById('status')
+      var eventEl = document.getElementById('eventlog')
+      var eventLines = []
+
+      function snapshot() {
+        var demo = window.EmotionDemo
+        if (!demo) return
+        var snapshot = demo.snapshot()
+        statusEl.textContent =
+          'Turn ' + snapshot.turn +
+          ' · dominant: ' + snapshot.dominant +
+          ' · lang: ' + snapshot.language +
+          ' · latency: ' + snapshot.latencyMs + 'ms' +
+          ' · trend: ' + snapshot.trendLength + ' 轮'
+      }
+
+      function log(text) {
+        eventLines.push(text)
+        eventEl.textContent = eventLines.slice(-4).join('  ·  ')
+      }
+
+      document.addEventListener('click', function (event) {
+        var button = event.target.closest('[data-demo]')
+        if (!button) return
+        var demo = window.EmotionDemo
+        if (!demo) return
+        var action = button.dataset.demo
+        if (action === 'happy' || action === 'sad' || action === 'neutral') {
+          demo.newTurn(action)
+        } else if (action === 'lang-zh') {
+          demo.setLanguage('zh')
+        } else if (action === 'lang-en') {
+          demo.setLanguage('en')
+        } else if (action === 'theme-system') {
+          demo.setTheme('system')
+        } else if (action === 'theme-light') {
+          demo.setTheme('light')
+        } else if (action === 'theme-dark') {
+          demo.setTheme('dark')
+        } else if (action === 'collapse') {
+          demo.collapse()
+        } else if (action === 'expand') {
+          demo.expand()
+        } else if (action === 'hide') {
+          demo.hide()
+        } else if (action === 'show') {
+          demo.show()
+        }
+        snapshot()
+      })
+
+      window.addEventListener('emotion-monitor-close', function () {
+        log('emotion-monitor-close')
+        statusEl.textContent = '已关闭：可点「重新打开」或调用 show()'
+      })
+      window.addEventListener('emotion-monitor-open', function () {
+        log('emotion-monitor-open')
+        snapshot()
+      })
+      window.addEventListener('emotion-monitor-collapse', function (event) {
+        log('emotion-monitor-collapse(collapsed=' + event.detail.collapsed + ')')
+      })
+
+      document.addEventListener('DOMContentLoaded', snapshot)
+      snapshot()
+    })()
+  </script>
+</body>
+</html>
