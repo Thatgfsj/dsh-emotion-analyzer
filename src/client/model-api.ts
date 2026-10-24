@@ -2,11 +2,11 @@
  * dsh-emotion-analyzer — client for the model-management HTTP API.
  *
  * Contract (issue #39, consumed by the settings UI in #40):
- *   GET  /api/emotion-analyzer/v1/state          -> ModelState
- *   POST /api/emotion-analyzer/v1/select         { id } -> ModelState
- *   POST /api/emotion-analyzer/v1/download       { id } -> ModelState
- *   POST /api/emotion-analyzer/v1/remove         { id } -> ModelState
- *   POST /api/emotion-analyzer/v1/test           { text } -> ModelTestResult
+ *   GET    /api/emotion-analyzer/v1/state          -> ModelState
+ *   POST   /api/emotion-analyzer/v1/model/select   { id } -> ModelState
+ *   POST   /api/emotion-analyzer/v1/model/download { id } -> ModelState
+ *   DELETE /api/emotion-analyzer/v1/model/{id}     -> ModelState
+ *   POST   /api/emotion-analyzer/v1/test           { text } -> ModelTestResult
  *
  * All requests are same-origin with credentials: 'include'. Errors are
  * normalised to ModelApiError with a human-readable Chinese message. When the
@@ -328,9 +328,29 @@ export function normalizeModelState(raw: unknown, source: ModelSource = 'live', 
     current = presets.find((preset) => preset.id === activeModelId) ?? null
   }
   const downloadId = firstString(record.downloadingId, record.pendingModelId)
-  const download = normalizeDownload(record.download ?? record.downloadState ?? record.progress, downloadId)
+  let downloadRaw = record.download ?? record.downloadState ?? record.progress
+  if (downloadRaw === undefined && Array.isArray(presetSource)) {
+    // Host #39 state carries per-model transfer fields, not a top-level download.
+    const active = (presetSource as Record<string, unknown>[]).find((entry) => {
+      if (!isRecord(entry)) return false
+      return entry.downloading === true || entry.error !== undefined
+    })
+    if (isRecord(active)) {
+      const progress = isRecord(active.progress) ? active.progress : {}
+      downloadRaw = {
+        id: firstString(active.id, active.modelId),
+        status: active.downloading === true ? 'downloading' : 'failed',
+        percent: firstNumber(progress.percent),
+        receivedBytes: firstNumber(progress.receivedBytes),
+        totalBytes: firstNumber(progress.totalBytes),
+        error: firstString(active.error),
+      }
+    }
+  }
+  const download = normalizeDownload(downloadRaw, downloadId)
   const warnings = stringList(record.warnings ?? record.notices)
-  const fallback = firstBoolean(record.fallback) === true || (current ? current.fallback : false)
+  const fallback =
+    firstBoolean(record.fallback, record.fallbackActive) === true || (current ? current.fallback : false)
   const needsExport =
     firstBoolean(record.needsExport, record.requiresExport) === true ||
     presets.some((preset) => preset.needsExport && !preset.installed)
@@ -706,22 +726,22 @@ export class ModelApiClient {
     return this.stateCall('/state')
   }
 
-  /** POST /select { id }. */
+  /** POST /model/select { id }. */
   async selectModel(id: string): Promise<ModelState> {
     if (this.isMock()) return this.mock.selectModel(id)
-    return this.stateCall('/select', this.postBody({ id }))
+    return this.stateCall('/model/select', this.postBody({ id }))
   }
 
-  /** POST /download { id }. */
+  /** POST /model/download { id }. */
   async downloadModel(id: string): Promise<ModelState> {
     if (this.isMock()) return this.mock.downloadModel(id)
-    return this.stateCall('/download', this.postBody({ id }))
+    return this.stateCall('/model/download', this.postBody({ id }))
   }
 
-  /** POST /remove { id } — also cancels an in-flight download. */
+  /** DELETE /model/{id} — also cancels an in-flight download. */
   async removeModel(id: string): Promise<ModelState> {
     if (this.isMock()) return this.mock.removeModel(id)
-    return this.stateCall('/remove', this.postBody({ id }))
+    return this.stateCall('/model/' + encodeURIComponent(id), { method: 'DELETE' })
   }
 
   /** POST /test { text }. */
