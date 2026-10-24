@@ -63,6 +63,7 @@
   },
   "dependencies": {
     "onnxruntime-node": "^1.23.0",
+    "tokenizers": "^0.23.2",
     "zod": "^4.0.0"
   },
   "peerDependencies": {
