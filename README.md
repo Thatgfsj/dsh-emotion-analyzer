@@ -11,9 +11,9 @@
 
 ## 功能
 
-- **本地推理，零第三方模型 API**：XLM-RoBERTa-base 多语言情绪分类（11 标签多标签），ONNX INT8 动态量化，CPU 中位 **6.8ms/条**（p95 ≈ 8ms），不联网、不额外消耗主模型 Token。
+- **本地推理，零第三方模型 API**：XLM-RoBERTa-base 多语言情绪分类（11 标签多标签），ONNX INT8 动态量化，CPU 中位 **6.8ms/条**（Python `validate.py`；Node 侧含分词 8.3ms，p95 ≈ 12ms），不联网、不额外消耗主模型 Token。
 - **多语言**：中文 / 英文原生支持（训练数据 20+ 语言），按 CJK 占比显示语言标识。
-- **硬编码映射层**：11 个原始标签 → 7 个统一维度（**愉快 pleasant** / 悲伤 / 愤怒 / 焦虑 / **反感 unwell = max(disgust, 0.5·fear)** / **疑问 confused = max(surprise, doubt)** / 平静），阈值过滤 + 衰减 + 步长 + 封顶，参数集中在 `src/mapping.ts`。开心已并入「愉快」（#30）。
+- **硬编码映射层**：11 个原始标签 → 7 个统一维度（**愉快 pleasant** / 悲伤 / 愤怒 / 焦虑 / **反感 unwell = max(disgust, 0.5·fear)** / **疑问 confused = max(surprise, doubt)** / 平静），阈值过滤 + 衰减 + 步长 + 封顶，参数集中在 `src/mapping.ts`。开心已并入「愉快」（#30），disgust 只归反感、不再同时点亮愤怒（#32）。
 - **Session projection**：每轮分数以 `plugin:emotion-analyzer/turn`（ignorable）写入会话日志，由 `emotion` projection 单元纯同步 fold；重启、fork 自动恢复。
 - **悬浮框**：Web Components + Shadow DOM；**默认只显示一个 emoji 徽章**，点击才展开分数条/sparkline，再点 [—] 折叠；拖拽、位置记忆、300ms 动画、30 轮 canvas 趋势、明暗主题、关闭后设置页/右上角 💗 重开（#31）。
 
@@ -57,19 +57,19 @@ dsh plugin --profile web add /path/to/dsh-emotion-analyzer
 
 | 常量 | 值 | 说明 |
 |---|---|---|
-| `THRESHOLD` | 0.3 | 聚合分低于该值视为噪声：整轮跳过，不积累也不衰减 |
+| `THRESHOLD` | 0.2 | 聚合分低于该值视为噪声：整轮跳过，不积累也不衰减。**校准记录**：模型对“难过”常给 sadness≈0.27，0.3 会丢真实悲伤；中性句其余标签 <0.05，降到 0.2 不误报（#30） |
 | `DECAY` | 0.85 | 每轮回落系数。**校准记录**：提示词给 0.9，但 0.9^10=0.349 无法满足"5 轮伤心 + 10 轮中性后 sad<0.2"，故取 0.85（见 [#13](https://github.com/Thatgfsj/dsh-emotion-analyzer/issues/13)） |
 | `STEP_MAX` | 0.25 | 单轮命中最大步长，避免一次爆表 |
 | `CAP` | 1.0 | 统一维度封顶 |
 
-模型原始标签 → 统一维度映射见 `EMOTION_MAP`（`unwell = max(disgust, 0.5·fear)`；`confused = max(surprise, doubt)`，doubt 为文本启发式）。
+模型原始标签 → 统一维度映射见 `EMOTION_MAP`（`sad = sadness`、`angry = max(anger, contempt, frustration)`、`anxious = fear`、`unwell = max(disgust, 0.5·fear)`、`confused = max(surprise, doubt)`，doubt 为文本启发式）。
 
 ## 验收结果
 
 | 项 | 结果 |
 |---|---|
-| 20 中文 + 20 英文 top-1 | **40/40 = 100%**（阈值 80%） |
-| CPU INT8 单条推理 | 中位 **6.8ms**，p95 ≈ 8.0ms（< 200ms） |
+| 20 中文 + 20 英文 top-1 | **40/40 = 100%**（阈值 80%；#30/#32 映射重构后用 Node 复算同一 40 条 CASES） |
+| CPU INT8 单条推理 | Python `validate.py` 中位 **6.8ms**；Node 侧含分词中位 **8.3ms**、p95 11.6ms（< 200ms） |
 | tokenizer 与 Python fast 对齐 | 4/4 case 逐 token 一致 |
 | 5 轮 sad 累积 / 10 轮 neutral 回落 | 单测通过（≤ CAP、< 0.2） |
 | 重启 projection 恢复 | 日志重放回归测试通过 |

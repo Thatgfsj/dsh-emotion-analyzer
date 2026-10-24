@@ -108,8 +108,10 @@ export interface EmotionRule {
  *
  * - pleasant / sad / angry / anxious / neutral 用 `max`：同一维度
  *   里任一标签高就代表该情绪强，取最大值不会被多个同义标签重复放大。
- * - unwell 用 `wsum`：sadness * 0.5 + disgust * 0.4，表达“低落 + 厌恶”
- *   的混合不适感，权重差异来自人工校准。
+ * - unwell 用 `max`：max(disgust, 0.5 * fear)，表达“恶心/难受”的反感；
+ *   与 sad 解耦后纯悲伤不再点亮（issue #32）。
+ * - disgust 只归 unwell：模型对“恶心”给 disgust≈0.99，若同时进 angry 会
+ *   出现 angry 与 unwell 两条重复高亮，故 angry 只看 anger/contempt/frustration。
  * - confused（显示名“疑问”）用 surprise 代理：当前模型没有 confusion /
  *   uncertainty 标签，surprise 是语义上最接近的可用信号（issue #25）。
  */
@@ -118,11 +120,12 @@ export const EMOTION_MAP: Readonly<Record<EmotionDimension, EmotionRule>> = {
   pleasant: { kind: 'max', terms: [['joy', 1], ['love', 1], ['gratitude', 1]] },
   // 精修（issue #30）：frustration 只归 angry，不再同时推高 sad/anxious。
   sad: { kind: 'max', terms: [['sadness', 1]] },
-  angry: { kind: 'max', terms: [['anger', 1], ['disgust', 1], ['contempt', 1], ['frustration', 1]] },
+  // 精修（issue #32）：disgust 只归 unwell（否则“恶心”会同时点亮 angry+unwell）。
+  angry: { kind: 'max', terms: [['anger', 1], ['contempt', 1], ['frustration', 1]] },
   anxious: { kind: 'max', terms: [['fear', 1]] },
   // issue #32：模型没有 sickness 标签；旧式 0.5*sadness+0.4*disgust 与 sad
-  // 共线（r=0.976）。改为 max(disgust, 0.5*fear)：与 sad 解耦（r≈0.22），
-  // “恶心/头晕胃翻”仍能命中，纯悲伤不再点亮。
+  // 共线（40 条验收集实测 r=0.965）。改为 max(disgust, 0.5*fear)：解耦后
+  // r=0.028，“恶心/头晕胃翻”仍能命中，纯悲伤不再点亮。
   unwell: { kind: 'max', terms: [['disgust', 1], ['fear', 0.5]] },
   // `doubt` 是宿主文本启发式（非模型标签）；surprise 只覆盖“惊讶”，
   // 中文疑问/不确定句需要 doubt 才能命中（见 issue #28）。
