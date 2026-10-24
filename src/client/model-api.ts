@@ -1,0 +1,820 @@
+/**
+ * dsh-emotion-analyzer — client for the model-management HTTP API.
+ *
+ * Contract (issue #39, consumed by the settings UI in #40):
+ *   GET  /api/emotion-analyzer/v1/state          -> ModelState
+ *   POST /api/emotion-analyzer/v1/select         { id } -> ModelState
+ *   POST /api/emotion-analyzer/v1/download       { id } -> ModelState
+ *   POST /api/emotion-analyzer/v1/remove         { id } -> ModelState
+ *   POST /api/emotion-analyzer/v1/test           { text } -> ModelTestResult
+ *
+ * All requests are same-origin with credentials: 'include'. Errors are
+ * normalised to ModelApiError with a human-readable Chinese message. When the
+ * host API is not available yet (404 / network error) the client can fall back
+ * to a self-contained mock registry so the settings UI can still be reviewed;
+ * the UI labels that state as 演示模式.
+ */
+
+export const MODEL_API_BASE = '/api/emotion-analyzer/v1'
+export const MODEL_POLL_INTERVAL_MS = 1000
+
+export type ModelSource = 'live' | 'mock'
+export type ModelApiMode = 'auto' | 'live' | 'mock'
+
+export type DownloadStatus =
+  | 'idle'
+  | 'queued'
+  | 'downloading'
+  | 'verifying'
+  | 'installing'
+  | 'complete'
+  | 'failed'
+  | 'cancelled'
+
+export interface ModelDownload {
+  id?: string
+  status: DownloadStatus
+  /** 0-100. */
+  percent: number
+  bytesDone?: number
+  bytesTotal?: number
+  speedBps?: number
+  message?: string
+  error?: string
+}
+
+export interface ModelPreset {
+  id: string
+  name: string
+  description?: string
+  /** Number of supported languages (array form is normalised). */
+  languages: number
+  languageCodes?: string[]
+  /** Number of classification labels. */
+  labels: number
+  sizeBytes?: number
+  license: string
+  profile?: string
+  legacy: boolean
+  fallback: boolean
+  installed: boolean
+  downloadable: boolean
+  needsExport: boolean
+  recommended: boolean
+  expectedExportPath?: string
+}
+
+export interface ModelState {
+  current: ModelPreset | null
+  presets: ModelPreset[]
+  activeModelId: string | null
+  download: ModelDownload | null
+  needsExport: boolean
+  fallback: boolean
+  warnings: string[]
+  source: ModelSource
+  mockReason?: string
+}
+
+export interface ModelTestResult {
+  modelId: string
+  latencyMs: number
+  scores: Record<string, number>
+  dominant?: string
+  language?: string
+  error?: string
+}
+
+export interface ModelApiOptions {
+  baseUrl?: string
+  fetchImpl?: typeof fetch
+  mode?: ModelApiMode
+  now?: () => number
+}
+
+/** Error raised for a failed model API call. */
+export class ModelApiError extends Error {
+  readonly status: number
+  readonly code: string
+  readonly detail?: string
+
+  constructor(message: string, status = 0, code = 'unknown', detail?: string) {
+    super(message)
+    this.name = 'ModelApiError'
+    this.status = status
+    this.code = code
+    this.detail = detail
+  }
+}
+
+/** Download statuses that mean the transfer is finished (success or not). */
+export function isTerminalDownloadStatus(status: DownloadStatus): boolean {
+  return status === 'complete' || status === 'failed' || status === 'cancelled' || status === 'idle'
+}
+
+/** True while a download is still making progress (used to drive polling). */
+export function isActiveDownloadStatus(status: DownloadStatus): boolean {
+  return status === 'queued' || status === 'downloading' || status === 'verifying' || status === 'installing'
+}
+
+/** Whether the client should keep polling /state for download progress. */
+export function shouldPollModelState(state: ModelState | null | undefined): boolean {
+  if (!state || !state.download) return false
+  return isActiveDownloadStatus(state.download.status)
+}
+
+/** Human label for a download status. */
+export function downloadStatusLabel(status: DownloadStatus): string {
+  switch (status) {
+    case 'queued':
+      return '排队中'
+    case 'downloading':
+      return '下载中'
+    case 'verifying':
+      return '校验中'
+    case 'installing':
+      return '安装中'
+    case 'complete':
+      return '下载完成'
+    case 'failed':
+      return '下载失败'
+    case 'cancelled':
+      return '已取消'
+    default:
+      return '空闲'
+  }
+}
+
+/** 0-100 integer progress, tolerant of fraction / byte-only payloads. */
+export function downloadPercent(download: ModelDownload | null | undefined): number {
+  if (!download) return 0
+  const bytePercent =
+    download.bytesTotal && download.bytesTotal > 0 && download.bytesDone !== undefined
+      ? (download.bytesDone / download.bytesTotal) * 100
+      : Number.NaN
+  let percent = bytePercent
+  if (!Number.isFinite(percent)) {
+    percent = Number.isFinite(download.percent) ? download.percent : 0
+    if (percent > 0 && percent <= 1) percent *= 100
+  }
+  return Math.max(0, Math.min(100, Math.round(percent)))
+}
+
+/** Binary byte formatting for the UI (B / KiB / MiB / GiB). */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return '—'
+  if (bytes < 1024) return Math.round(bytes) + ' B'
+  const units = ['KiB', 'MiB', 'GiB', 'TiB']
+  let value = bytes / 1024
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return (value >= 10 ? value.toFixed(0) : value.toFixed(1)) + ' ' + units[unit]
+}
+
+/** One-line download summary used next to the progress bar. */
+export function formatProgress(download: ModelDownload | null | undefined): string {
+  if (!download) return ''
+  const percent = downloadPercent(download)
+  let text = downloadStatusLabel(download.status) + ' ' + percent + '%'
+  if (download.bytesTotal && download.bytesTotal > 0) {
+    text += ' · ' + formatBytes(download.bytesDone) + ' / ' + formatBytes(download.bytesTotal)
+  }
+  if (download.error) text += ' · ' + download.error
+  return text
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim()
+  }
+  return undefined
+}
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) return parsed
+    }
+  }
+  return undefined
+}
+
+function firstBoolean(...values: unknown[]): boolean | undefined {
+  for (const value of values) {
+    if (typeof value === 'boolean') return value
+  }
+  return undefined
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+}
+
+function countOf(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.round(value)
+  if (Array.isArray(value)) return value.length
+  if (isRecord(value)) return Object.keys(value).length
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.round(parsed)
+  }
+  return fallback
+}
+
+function sizeFrom(raw: Record<string, unknown>): number | undefined {
+  const direct = firstNumber(raw.sizeBytes, raw.size, raw.bytes, raw.diskSizeBytes)
+  if (direct !== undefined) return direct
+  const mib = firstNumber(raw.sizeMiB, raw.sizeMB, raw.sizeMib)
+  if (mib !== undefined) return Math.round(mib * 1024 * 1024)
+  const gib = firstNumber(raw.sizeGiB, raw.sizeGB)
+  if (gib !== undefined) return Math.round(gib * 1024 * 1024 * 1024)
+  return undefined
+}
+
+/** Normalise one preset payload; returns null when it has no usable id. */
+export function normalizePreset(raw: unknown): ModelPreset | null {
+  if (!isRecord(raw)) return null
+  const id = firstString(raw.id, raw.modelId, raw.model, raw.slug, raw.key, raw.name)
+  if (!id) return null
+  const languageCodes = stringList(
+    raw.languageCodes ?? raw.languagesList ?? raw.locales ?? (Array.isArray(raw.languages) ? raw.languages : undefined),
+  )
+  const languages = countOf(raw.languageCount ?? raw.languages ?? raw.languageTotal ?? languageCodes, languageCodes.length)
+  const labels = countOf(raw.labelCount ?? raw.labels ?? raw.numLabels ?? raw.outputLabels)
+  const profile = firstString(raw.profile, raw.mappingProfile)
+  const status = firstString(raw.status, raw.state)
+  const legacy = firstBoolean(raw.legacy, raw.isLegacy) === true || profile === 'legacy-11'
+  const installed =
+    firstBoolean(raw.installed, raw.downloaded, raw.isInstalled) === true ||
+    status === 'installed' ||
+    status === 'ready'
+  return {
+    id,
+    name: firstString(raw.name, raw.title, raw.displayName, raw.modelId) ?? id,
+    description: firstString(raw.description, raw.summary, raw.notes),
+    languages,
+    ...(languageCodes.length > 0 ? { languageCodes } : {}),
+    labels,
+    ...(sizeFrom(raw) !== undefined ? { sizeBytes: sizeFrom(raw) } : {}),
+    license: firstString(raw.license, raw.licence, raw.licenseName) ?? '未标注',
+    ...(profile ? { profile } : {}),
+    legacy,
+    fallback: firstBoolean(raw.fallback, raw.isFallback) === true || legacy,
+    installed,
+    downloadable: firstBoolean(raw.downloadable, raw.canDownload) !== false,
+    needsExport: firstBoolean(raw.needsExport, raw.requiresExport) === true,
+    recommended: firstBoolean(raw.recommended, raw.default, raw.isDefault) === true,
+    expectedExportPath: firstString(raw.expectedExportPath, raw.exportPath),
+  }
+}
+
+/** Normalise a download/progress payload. */
+export function normalizeDownload(raw: unknown, fallbackId?: string): ModelDownload | null {
+  if (!isRecord(raw)) return null
+  const statusRaw = (firstString(raw.status, raw.state, raw.phase) ?? '').toLowerCase()
+  let status: DownloadStatus = 'idle'
+  if (statusRaw === 'queued' || statusRaw === 'pending' || statusRaw === 'waiting') status = 'queued'
+  else if (statusRaw === 'downloading' || statusRaw === 'in_progress' || statusRaw === 'running' || statusRaw === 'active') status = 'downloading'
+  else if (statusRaw === 'verifying' || statusRaw === 'checksum') status = 'verifying'
+  else if (statusRaw === 'installing' || statusRaw === 'extracting') status = 'installing'
+  else if (statusRaw === 'complete' || statusRaw === 'completed' || statusRaw === 'done' || statusRaw === 'success') status = 'complete'
+  else if (statusRaw === 'failed' || statusRaw === 'error') status = 'failed'
+  else if (statusRaw === 'cancelled' || statusRaw === 'canceled' || statusRaw === 'aborted') status = 'cancelled'
+  const bytesDone = firstNumber(raw.bytesDone, raw.downloadedBytes, raw.receivedBytes)
+  const bytesTotal = firstNumber(raw.bytesTotal, raw.totalBytes, raw.sizeBytes)
+  let percent = firstNumber(raw.percent, raw.progress, raw.percentage, raw.pct) ?? 0
+  if (percent > 0 && percent <= 1 && (raw.percent !== undefined || raw.percentage !== undefined)) percent *= 100
+  if (bytesTotal && bytesTotal > 0 && bytesDone !== undefined) percent = (bytesDone / bytesTotal) * 100
+  if (status === 'complete') percent = 100
+  percent = Math.max(0, Math.min(100, Math.round(percent)))
+  const download: ModelDownload = { status, percent }
+  const id = firstString(raw.id, raw.modelId, raw.presetId) ?? fallbackId
+  if (id) download.id = id
+  if (bytesDone !== undefined) download.bytesDone = bytesDone
+  if (bytesTotal !== undefined && bytesTotal > 0) download.bytesTotal = bytesTotal
+  const speed = firstNumber(raw.speedBps, raw.bytesPerSecond, raw.speed)
+  if (speed !== undefined) download.speedBps = speed
+  const message = firstString(raw.message, raw.detail, raw.stage)
+  if (message) download.message = message
+  const error = firstString(raw.error, raw.errorMessage, raw.failureReason)
+  if (error) download.error = error
+  return download
+}
+
+/** Normalise the /state payload into the UI-facing shape. */
+export function normalizeModelState(raw: unknown, source: ModelSource = 'live', mockReason?: string): ModelState {
+  const record = isRecord(raw) ? raw : {}
+  const presetSource = record.models ?? record.presets ?? record.available ?? record.catalog
+  const rawPresets = Array.isArray(presetSource) ? presetSource : []
+  const presets = rawPresets
+    .map((entry) => normalizePreset(entry))
+    .filter((entry): entry is ModelPreset => entry !== null)
+  const currentRaw = record.current ?? record.activeModel ?? record.selectedModel
+  let current = normalizePreset(currentRaw)
+  const activeModelId =
+    firstString(record.activeModelId, record.currentModelId, record.selectedId) ??
+    (current ? current.id : null)
+  if (!current && activeModelId) {
+    current = presets.find((preset) => preset.id === activeModelId) ?? null
+  }
+  const downloadId = firstString(record.downloadingId, record.pendingModelId)
+  const download = normalizeDownload(record.download ?? record.downloadState ?? record.progress, downloadId)
+  const warnings = stringList(record.warnings ?? record.notices)
+  const fallback = firstBoolean(record.fallback) === true || (current ? current.fallback : false)
+  const needsExport =
+    firstBoolean(record.needsExport, record.requiresExport) === true ||
+    presets.some((preset) => preset.needsExport && !preset.installed)
+  return {
+    current,
+    presets,
+    activeModelId: current ? current.id : activeModelId,
+    download,
+    needsExport,
+    fallback,
+    warnings,
+    source,
+    ...(mockReason ? { mockReason } : {}),
+  }
+}
+
+/** Normalise the /test payload. */
+export function normalizeTestResult(raw: unknown, fallbackModelId = ''): ModelTestResult {
+  const record = isRecord(raw) ? raw : {}
+  const rawScores = record.scores ?? record.dimensions ?? record.result
+  const scores: Record<string, number> = {}
+  if (isRecord(rawScores)) {
+    for (const [key, value] of Object.entries(rawScores)) {
+      const numeric = firstNumber(value)
+      if (numeric === undefined) continue
+      scores[key] = Math.max(0, Math.min(1, numeric > 1 ? numeric / 100 : numeric))
+    }
+  }
+  return {
+    modelId: firstString(record.modelId, record.model, record.id) ?? fallbackModelId,
+    latencyMs: Math.max(0, Math.round(firstNumber(record.latencyMs, record.latency, record.elapsedMs) ?? 0)),
+    scores,
+    dominant: firstString(record.dominant, record.topLabel),
+    language: firstString(record.language, record.lang),
+    error: firstString(record.error, record.message),
+  }
+}
+
+/** Turn a thrown value into a user-facing Chinese sentence. */
+export function describeApiError(error: unknown): string {
+  if (error instanceof ModelApiError) return error.message
+  if (error instanceof Error) {
+    if (error.name === 'AbortError') return '请求已取消。'
+    if (error.name === 'TypeError') return '无法连接模型服务，请确认 DSH 宿主 API 是否已就绪。'
+    return error.message
+  }
+  return String(error)
+}
+
+function errorMessageFromBody(body: unknown): string | undefined {
+  if (typeof body === 'string') return body.trim() || undefined
+  if (!isRecord(body)) return undefined
+  return firstString(body.message, body.error, body.detail, body.reason)
+}
+
+/** Build the error for a non-2xx HTTP response. */
+export function errorFromResponse(status: number, body: unknown): ModelApiError {
+  const serverMessage = errorMessageFromBody(body)
+  const fallback =
+    status === 404
+      ? '模型 API 不可用（404），宿主后端可能尚未就绪。'
+      : status === 409
+        ? '当前有下载任务进行中，请完成或取消后再试。'
+        : status === 422
+          ? '请求参数无效，请检查所选模型。'
+          : status >= 500
+            ? '模型服务内部错误，请稍后重试。'
+            : '模型请求失败（HTTP ' + status + '）。'
+  return new ModelApiError(serverMessage ?? fallback, status, status === 404 ? 'api-unavailable' : 'http-error', serverMessage)
+}
+
+async function requestJson(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+): Promise<unknown> {
+  let response: Response
+  try {
+    response = await fetchImpl(url, init)
+  } catch (error) {
+    throw new ModelApiError(describeApiError(error), 0, 'network')
+  }
+  let body: unknown
+  const text = await response.text().catch(() => '')
+  if (text.length > 0) {
+    try {
+      body = JSON.parse(text)
+    } catch {
+      body = text
+    }
+  }
+  if (!response.ok) throw errorFromResponse(response.status, body)
+  return body
+}
+
+function isUnavailableError(error: unknown): boolean {
+  return error instanceof ModelApiError && (error.status === 0 || error.status === 404)
+}
+
+function mockPresets(): ModelPreset[] {
+  return [
+    {
+      id: 'horizon-small',
+      name: 'Horizon Small（推荐）',
+      description: '多语言小模型，36 语言 / 28 标签，原生 confusion，Apache-2.0。',
+      languages: 36,
+      labels: 28,
+      sizeBytes: 256 * 1024 * 1024,
+      license: 'Apache-2.0',
+      profile: 'go-emotions-28',
+      legacy: false,
+      fallback: false,
+      installed: true,
+      downloadable: true,
+      needsExport: false,
+      recommended: true,
+    },
+    {
+      id: 'horizon-base',
+      name: 'Horizon Base',
+      description: '同系列更大版本，精度更高但体积 612 MiB。',
+      languages: 36,
+      labels: 28,
+      sizeBytes: 612 * 1024 * 1024,
+      license: 'Apache-2.0',
+      profile: 'go-emotions-28',
+      legacy: false,
+      fallback: false,
+      installed: false,
+      downloadable: true,
+      needsExport: false,
+      recommended: false,
+    },
+    {
+      id: 'tabularisai-11',
+      name: 'tabularisai（legacy）',
+      description: '当前内置模型：23 语言 / 11 标签，CC-BY-NC-4.0，仅作为兼容回退。',
+      languages: 23,
+      labels: 11,
+      sizeBytes: 267 * 1024 * 1024,
+      license: 'CC-BY-NC-4.0',
+      profile: 'legacy-11',
+      legacy: true,
+      fallback: true,
+      installed: true,
+      downloadable: true,
+      needsExport: false,
+      recommended: false,
+    },
+    {
+      id: 'johnson8187-zh',
+      name: 'Chinese Emotion（中文）',
+      description: '中文专用 8 标签小模型，需在本地运行导出脚本。',
+      languages: 1,
+      languageCodes: ['zh'],
+      labels: 8,
+      sizeBytes: 279 * 1024 * 1024,
+      license: 'MIT',
+      profile: 'zh-8',
+      legacy: false,
+      fallback: false,
+      installed: false,
+      downloadable: false,
+      needsExport: true,
+      recommended: false,
+      expectedExportPath: 'assets/models/johnson8187-zh/model.onnx',
+    },
+  ]
+}
+
+interface MockDownload {
+  id: string
+  startedAt: number
+  durationMs: number
+  cancelled: boolean
+}
+
+class MockBackend {
+  private readonly now: () => number
+  private readonly presets: ModelPreset[]
+  private activeId: string
+  private download: MockDownload | null = null
+  private lastFailure: string | undefined
+  private completedAt = 0
+  private completedId: string | null = null
+
+  constructor(now: () => number) {
+    this.now = now
+    this.presets = mockPresets()
+    this.activeId = 'horizon-small'
+  }
+
+  private find(id: string): ModelPreset | undefined {
+    return this.presets.find((preset) => preset.id === id)
+  }
+
+  private currentProgress(): number {
+    if (!this.download) return 0
+    if (this.download.cancelled) return 0
+    const elapsed = this.now() - this.download.startedAt
+    return Math.max(0, Math.min(100, Math.round((elapsed / this.download.durationMs) * 100)))
+  }
+
+  private settle(): void {
+    if (!this.download) return
+    const percent = this.currentProgress()
+    if (this.download.cancelled) {
+      this.download = null
+      return
+    }
+    if (percent < 100) return
+    const preset = this.find(this.download.id)
+    if (preset) preset.installed = true
+    this.completedId = this.download.id
+    this.completedAt = this.now()
+    this.download = null
+  }
+
+  getState(): ModelState {
+    this.settle()
+    const current = this.find(this.activeId) ?? this.presets[0] ?? null
+    const download = this.download
+      ? normalizeDownload({
+          id: this.download.id,
+          status: 'downloading',
+          percent: this.currentProgress(),
+          bytesTotal: this.find(this.download.id)?.sizeBytes,
+          bytesDone: Math.round(((this.find(this.download.id)?.sizeBytes ?? 0) * this.currentProgress()) / 100),
+        })
+      : null
+    return {
+      current,
+      presets: this.presets,
+      activeModelId: this.activeId,
+      download,
+      needsExport: this.presets.some((preset) => preset.needsExport && !preset.installed),
+      fallback: current ? current.fallback : false,
+      warnings: [],
+      source: 'mock',
+    }
+  }
+
+  selectModel(id: string): ModelState {
+    const preset = this.find(id)
+    if (!preset) throw new ModelApiError('未找到模型：' + id, 404, 'not-found')
+    if (!preset.installed) throw new ModelApiError('模型尚未下载，请先下载。', 409, 'not-installed')
+    this.activeId = id
+    return this.getState()
+  }
+
+  downloadModel(id: string): ModelState {
+    const preset = this.find(id)
+    if (!preset) throw new ModelApiError('未找到模型：' + id, 404, 'not-found')
+    if (preset.needsExport) throw new ModelApiError('该模型需要本地导出后才能使用。', 422, 'needs-export')
+    if (!preset.downloadable) throw new ModelApiError('该模型不支持在线下载。', 422, 'not-downloadable')
+    if (this.download) throw new ModelApiError('已有下载任务进行中。', 409, 'download-busy')
+    this.download = { id, startedAt: this.now(), durationMs: 6000, cancelled: false }
+    this.lastFailure = undefined
+    return this.getState()
+  }
+
+  removeModel(id: string): ModelState {
+    if (this.download && this.download.id === id) {
+      this.download.cancelled = true
+      this.download = null
+      this.lastFailure = undefined
+      return this.getState()
+    }
+    const preset = this.find(id)
+    if (!preset) throw new ModelApiError('未找到模型：' + id, 404, 'not-found')
+    preset.installed = false
+    if (this.activeId === id) {
+      const fallback = this.presets.find((entry) => entry.installed && entry.id !== id && entry.legacy)
+      this.activeId = fallback ? fallback.id : 'horizon-small'
+    }
+    return this.getState()
+  }
+
+  testModel(text: string): ModelTestResult {
+    if (typeof text !== 'string' || text.trim().length === 0) {
+      throw new ModelApiError('请输入要测试的文本。', 422, 'empty-text')
+    }
+    const preset = this.find(this.activeId)
+    if (!preset || !preset.installed) throw new ModelApiError('当前没有可用模型。', 409, 'no-model')
+    let hash = 7
+    for (const char of text) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 1000003
+    const dimensions = ['pleasant', 'sad', 'angry', 'anxious', 'unwell', 'confused', 'neutral']
+    const scores: Record<string, number> = {}
+    dimensions.forEach((dimension, index) => {
+      const value = ((hash >> (index * 3)) % 100) / 100
+      scores[dimension] = Math.max(0.01, Math.min(0.99, Number((0.15 + value * 0.8).toFixed(3))))
+    })
+    return {
+      modelId: preset.id,
+      latencyMs: 8 + (hash % 15),
+      scores,
+      dominant: dimensions[hash % dimensions.length] ?? 'neutral',
+      language: /[\u4e00-\u9fff]/.test(text) ? 'zh' : 'en',
+    }
+  }
+
+  get completed(): { id: string | null; at: number } {
+    return { id: this.completedId, at: this.completedAt }
+  }
+
+  get lastError(): string | undefined {
+    return this.lastFailure
+  }
+}
+
+/**
+ * Model API client with live (same-origin fetch) and mock modes.
+ * Auto mode falls back to mock when the host routes are not mounted yet.
+ */
+export class ModelApiClient {
+  private readonly baseUrl: string
+  private readonly fetchImpl: typeof fetch
+  private readonly requestedMode: ModelApiMode
+  private readonly now: () => number
+  private readonly mock: MockBackend
+  private resolvedMode: ModelSource | null = null
+  private mockReason: string | undefined
+
+  constructor(options: ModelApiOptions = {}) {
+    this.baseUrl = (options.baseUrl ?? MODEL_API_BASE).replace(/\/$/, '')
+    this.fetchImpl = options.fetchImpl ?? fetch
+    this.requestedMode = options.mode ?? 'auto'
+    this.now = options.now ?? (() => Date.now())
+    this.mock = new MockBackend(this.now)
+    if (this.requestedMode === 'mock') this.resolvedMode = 'mock'
+  }
+
+  get mode(): ModelSource | null {
+    return this.resolvedMode
+  }
+
+  private mockState(): ModelState {
+    const state = this.mock.getState()
+    if (this.mockReason) state.mockReason = this.mockReason
+    return state
+  }
+
+  private async liveState(path: string, init: RequestInit = {}): Promise<ModelState> {
+    const body = await requestJson(this.fetchImpl, this.baseUrl + path, {
+      credentials: 'include',
+      ...init,
+    })
+    return normalizeModelState(body, 'live')
+  }
+
+  private isMock(): boolean {
+    return this.resolvedMode === 'mock'
+  }
+
+  private async stateCall(path: string, init: RequestInit = {}): Promise<ModelState> {
+    if (this.isMock()) return this.mockState()
+    try {
+      const state = await this.liveState(path, init)
+      this.resolvedMode = 'live'
+      return state
+    } catch (error) {
+      if (this.requestedMode === 'auto' && isUnavailableError(error)) {
+        this.resolvedMode = 'mock'
+        this.mockReason = describeApiError(error)
+        return this.mockState()
+      }
+      throw error
+    }
+  }
+
+  /** GET /state. */
+  async getState(): Promise<ModelState> {
+    return this.stateCall('/state')
+  }
+
+  /** POST /select { id }. */
+  async selectModel(id: string): Promise<ModelState> {
+    if (this.isMock()) return this.mock.selectModel(id)
+    return this.stateCall('/select', this.postBody({ id }))
+  }
+
+  /** POST /download { id }. */
+  async downloadModel(id: string): Promise<ModelState> {
+    if (this.isMock()) return this.mock.downloadModel(id)
+    return this.stateCall('/download', this.postBody({ id }))
+  }
+
+  /** POST /remove { id } — also cancels an in-flight download. */
+  async removeModel(id: string): Promise<ModelState> {
+    if (this.isMock()) return this.mock.removeModel(id)
+    return this.stateCall('/remove', this.postBody({ id }))
+  }
+
+  /** POST /test { text }. */
+  async testModel(text: string): Promise<ModelTestResult> {
+    if (this.isMock()) return this.mock.testModel(text)
+    const body = await requestJson(this.fetchImpl, this.baseUrl + '/test', {
+      credentials: 'include',
+      ...this.postBody({ text }),
+    }).catch((error) => {
+      if (this.requestedMode === 'auto' && isUnavailableError(error)) {
+        this.resolvedMode = 'mock'
+        this.mockReason = describeApiError(error)
+        return this.mock.testModel(text)
+      }
+      throw error
+    })
+    return normalizeTestResult(body, this.mock.completed.id ?? '')
+  }
+
+  /**
+   * Poll GET /state every second while a download is active.
+   * Returns a cleanup function suitable for a React effect teardown.
+   */
+  watchDownload(
+    onState: (state: ModelState) => void,
+    onError?: (error: unknown) => void,
+    intervalMs: number = MODEL_POLL_INTERVAL_MS,
+  ): () => void {
+    let stopped = false
+    let timer: ReturnType<typeof setInterval> | null = null
+    const stop = (): void => {
+      stopped = true
+      if (timer !== null) {
+        clearInterval(timer)
+        timer = null
+      }
+    }
+    const tick = async (): Promise<void> => {
+      if (stopped) return
+      try {
+        const state = await this.getState()
+        if (stopped) return
+        onState(state)
+        if (!shouldPollModelState(state)) stop()
+      } catch (error) {
+        if (stopped) return
+        if (onError) onError(error)
+        stop()
+      }
+    }
+    timer = setInterval(() => {
+      void tick()
+    }, Math.max(250, intervalMs))
+    return stop
+  }
+
+  private postBody(payload: Record<string, unknown>): RequestInit {
+    return {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(payload),
+    }
+  }
+}
+
+function readGlobalMode(): ModelApiMode | null {
+  const globalObject = globalThis as { __EMOTION_MODEL_API_MODE__?: unknown }
+  const explicit = globalObject.__EMOTION_MODEL_API_MODE__
+  if (explicit === 'mock' || explicit === 'live' || explicit === 'auto') return explicit
+  if (typeof window !== 'undefined' && typeof window.location !== 'undefined') {
+    const search = window.location.search || ''
+    if (search.indexOf('emotionModelMock=1') >= 0) return 'mock'
+    if (search.indexOf('emotionModelLive=1') >= 0) return 'live'
+  }
+  return null
+}
+
+let singleton: ModelApiClient | null = null
+
+/** Shared client for the settings UI (host provides same-origin fetch). */
+export function getModelApi(): ModelApiClient {
+  if (singleton === null) {
+    singleton = new ModelApiClient({ mode: readGlobalMode() ?? 'auto' })
+  }
+  return singleton
+}
+
+/** Create an isolated client (tests / storybook-like harnesses). */
+export function createModelApi(options: ModelApiOptions = {}): ModelApiClient {
+  return new ModelApiClient(options)
+}
+
+/** Reset the shared client (tests only). */
+export function resetModelApi(): void {
+  singleton = null
+}
