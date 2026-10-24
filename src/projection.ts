@@ -9,7 +9,7 @@
  * without ever calling the model again.
  */
 import { z } from 'zod'
-import { updateProjection } from './mapping.ts'
+import { aggregate, updateProjection } from './mapping.ts'
 import {
   TREND_LIMIT,
   emptyEmotionState,
@@ -40,6 +40,8 @@ export const emotionStateSchema = z
     language: z.enum(['zh', 'en']),
     updatedAt: z.number().finite().nonnegative(),
     totalTurns: z.number().int().nonnegative(),
+    turnScores: scoreSchema,
+    turnDominant: z.string(),
   })
   .strict()
 
@@ -82,6 +84,9 @@ export function applyEmotionTurn(
 ): EmotionProjectionState {
   if (record.turn <= state.turn) return state
   const scores = updateProjection(state.scores, record.raw) as ScoreMap
+  // Per-turn raw aggregate (no STEP_MAX accumulation): the widget's "本回合"
+  // bars and emoji read this, so a single joyful reply shows ~0.9 instead of 0.25.
+  const turnScores = aggregate(record.raw) as ScoreMap
   const trend = [...state.trend, { turn: record.turn, scores }].slice(-TREND_LIMIT)
   return {
     version: 1,
@@ -93,6 +98,8 @@ export function applyEmotionTurn(
     language: record.language,
     updatedAt: record.timestamp,
     totalTurns: state.totalTurns + 1,
+    turnScores,
+    turnDominant: dominantOf(turnScores),
   }
 }
 
@@ -121,9 +128,9 @@ export function makeEmotionProjection(
 ): EmotionProjectionDefinition {
   return {
     key: 'emotion',
-    // 2: added the `confused` dimension (surprise proxy); invalidates old
-    // persisted projection-cache rows so logs refold with the new mapping.
-    stateVersion: 2,
+    // 3: merged happy into pleasant, refined mapping (#30) and added
+    // per-turn raw aggregates (#30); old cache rows refold from the log.
+    stateVersion: 3,
     stateSchema: emotionStateSchema,
     init: emptyEmotionState,
     apply(state, event) {

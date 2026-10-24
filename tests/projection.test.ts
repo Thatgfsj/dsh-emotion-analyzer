@@ -22,9 +22,9 @@ function record(turn: number, raw: Record<string, number>): EmotionTurnRecord {
 }
 
 test('dominantOf picks the highest dimension and falls back to neutral', () => {
-  assert.equal(dominantOf({ happy: 0.2, sad: 0.7 }), 'sad')
+  assert.equal(dominantOf({ pleasant: 0.2, sad: 0.7 }), 'sad')
   assert.equal(dominantOf({}), 'neutral')
-  assert.equal(dominantOf({ happy: 0, sad: 0 }), 'neutral')
+  assert.equal(dominantOf({ pleasant: 0, sad: 0 }), 'neutral')
 })
 
 test('sad accumulates over five turns and never exceeds the cap', () => {
@@ -79,6 +79,6 @@ test('projection unit ignores foreign and malformed records', () => {
   assert.equal(unit.apply(initial, { type: EMOTION_RECORD_TYPE, data: { nope: true } }), initial)
   const withRecord = unit.apply(initial, { type: EMOTION_RECORD_TYPE, data: record(1, { joy: 0.93 }) })
   assert.notEqual(withRecord, initial)
-  assert.ok((withRecord.scores.happy ?? 0) > 0.2)
+  assert.ok((withRecord.scores.pleasant ?? 0) > 0.2)
   assert.equal(unit.wire?.view(withRecord), withRecord)
 })

@@ -47,8 +47,7 @@ export interface EmotionDemoApi {
 
 const PROFILES: Record<DemoKind, EmotionScores> = {
   happy: {
-    happy: 0.82,
-    pleasant: 0.68,
+    pleasant: 0.82,
     sad: 0.04,
     angry: 0.02,
     anxious: 0.1,
@@ -57,7 +56,6 @@ const PROFILES: Record<DemoKind, EmotionScores> = {
     neutral: 0.16,
   },
   sad: {
-    happy: 0.05,
     pleasant: 0.1,
     sad: 0.8,
     angry: 0.08,
@@ -67,7 +65,6 @@ const PROFILES: Record<DemoKind, EmotionScores> = {
     neutral: 0.26,
   },
   neutral: {
-    happy: 0.18,
     pleasant: 0.32,
     sad: 0.1,
     angry: 0.04,
@@ -203,6 +200,7 @@ function initDemo(): void {
   else demo.setTheme('system')
 
   const view = params.get('view')
+  if (view === 'expanded') demo.expand()
   if (view === 'collapsed') demo.collapse()
   if (view === 'closed') demo.hide()
 }

@@ -8,7 +8,6 @@
 
 /** Unified emotion dimensions shown in the widget. */
 export const UNIFIED_DIMENSIONS = [
-  'happy',
   'pleasant',
   'sad',
   'angry',
@@ -65,6 +64,10 @@ export interface EmotionProjectionState {
   language: DetectedLanguage
   updatedAt: number
   totalTurns: number
+  /** Aggregated scores for the latest turn only, before STEP_MAX accumulation. */
+  turnScores: ScoreMap
+  /** Dominant dimension of the latest turn (matches turnScores, not the accumulated state). */
+  turnDominant: string
 }
 
 /** Whole value pushed to the browser through the projection wire view. */
@@ -85,5 +88,7 @@ export function emptyEmotionState(): EmotionProjectionState {
     language: 'en',
     updatedAt: 0,
     totalTurns: 0,
+    turnScores: {},
+    turnDominant: 'neutral',
   }
 }

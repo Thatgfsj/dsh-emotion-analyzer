@@ -34,11 +34,14 @@ export function toWidgetData(
   sessionId?: string,
 ): WidgetData | null {
   if (value === undefined || value === null || typeof value !== 'object') return null
-  if (!value.scores || typeof value.scores !== 'object') return null
+  const displayScores = value.turnScores && Object.keys(value.turnScores).length > 0
+    ? value.turnScores
+    : value.scores
+  if (!displayScores || typeof displayScores !== 'object') return null
   return {
     turn: value.turn,
-    dominant: value.dominant,
-    scores: value.scores,
+    dominant: value.turnDominant ?? value.dominant,
+    scores: displayScores,
     trend: Array.isArray(value.trend) ? value.trend.map((point) => point.scores) : [],
     language: value.language === 'zh' ? 'zh' : 'en',
     latencyMs: value.latencyMs,

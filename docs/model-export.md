@@ -97,7 +97,7 @@ python3 scripts/export_model.py --force   # 删除缓存并完整重建
 python3 scripts/validate.py
 ```
 
-内置 **20 条中文 + 20 条英文**，覆盖 happy / pleasant / sad / angry / anxious / neutral 六个统一维度（中文：4/3/3/3/3/4；英文相同）。逐元素 sigmoid 后取 top-1 原始标签，再投影到统一维度与期望比较。
+内置 **20 条中文 + 20 条英文**，覆盖 pleasant / sad / angry / anxious / neutral 五个统一维度（happy 已并入 pleasant）。逐元素 sigmoid 后取 top-1 原始标签，再投影到统一维度与期望比较。
 
 **实测结果（INT8，CPU）：**
 
@@ -109,25 +109,27 @@ python3 scripts/validate.py
 
 测试句在第一次运行前写好，运行后未做针对性调参；40 条的完整明细见 PR 评论与 `assets/validation-report.json`。INT8 精度损失在本测试集上没有体现（原始 fp32 同日对照未单独跑）。
 
+**2026-10-24 映射重构后复算（Python venv 已清理）：** 用 Node `lib/inference.js` + `lib/mapping.js` 复算同一 40 条 CASES，映射已与 `validate.py` 同步（sad=sadness、angry 去掉 disgust、anxious=fear、unwell=max(disgust, 0.5×fear)）：**40/40 = 100%**（zh 20/20、en 20/20，无 miss），Node 侧含分词中位 8.34ms / p95 11.56ms。完整数据见 [端到端验收 §0.1.3](e2e.md)。
+
 ## 6. 统一维度映射
 
-模型输出 11 个独立概率，插件对上层暴露 8 个统一维度（其中“疑问”由 surprise 代理，模型本身没有 confusion/uncertainty 标签）：
+模型输出 11 个独立概率，插件对上层暴露 7 个统一维度（happy 已并入 pleasant；unwell 与 sad 解耦）：
 
 | 统一维度 | 计算方式 |
 |---|---|
-| happy | max(joy, gratitude) |
-| pleasant | max(joy, love, gratitude) |
-| sad | max(sadness, frustration) |
-| angry | max(anger, disgust, contempt, frustration) |
-| anxious | max(fear, frustration) |
-| unwell | sadness × 0.5 + disgust × 0.4（加权和，封顶 1.0） |
+| pleasant（愉快） | max(joy, love, gratitude)；happy 已合并 |
+| sad | max(sadness) |
+| angry | max(anger, contempt, frustration)；disgust 只归 unwell（#32） |
+| anxious | max(fear) |
+| unwell（反感） | max(disgust, fear × 0.5)，与 sad 解耦（#32） |
 | confused（疑问） | max(surprise, doubt) — **代理指标**；`doubt` 是插件运行时的文本启发式（问号/疑问词/不确定词），不是模型输出，validate.py 只验证模型侧的 surprise |
 | neutral | neutral |
 
 说明：
 
-- **top-1 统一维度存在并列**（例如只有 joy 高时 happy 与 pleasant 同分），实现里用固定顺序破平：happy → pleasant → sad → angry → anxious → unwell → confused → neutral。
-- `confused` 是 **surprise 的代理指标**：模型没有真正的 confusion/uncertainty 标签，语义上最接近的是 surprise；文档与 UI 都按“疑问”展示，不代表模型具备真实困惑分类能力。测试集仍以六类基础情绪为主。
+- **top-1 统一维度存在并列**（例如只有 joy 高时多个维度分数接近），实现里用固定顺序破平：pleasant → sad → angry → anxious → unwell → confused → neutral。
+- `confused` 是 **surprise 的代理指标**：模型没有真正的 confusion/uncertainty 标签，语义上最接近的是 surprise；文档与 UI 都按“疑问”展示，不代表模型具备真实困惑分类能力。测试集仍以五类基础情绪为主。
+- `disgust` 只归 `unwell`：实测“恶心”句 disgust≈0.99，若同时进 angry 会重复点亮两条（#32）。
 - 该映射必须与 TS 端 `src/mapping.ts`（Issue #4）保持一致；改动时同步 `scripts/validate.py` 与本文。
 
 ## 7. tokenizer fixture（TS 端逐 token 对齐）
