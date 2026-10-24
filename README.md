@@ -67,6 +67,7 @@ await scorer.dispose()
 
 - [架构](docs/architecture.md)
 - [模型导出与量化](docs/model-export.md)
+- [悬浮框 `<emotion-monitor>`](docs/widget.md)
 - [DSH 宿主 API 校准](docs/calibration.md)
 - [贡献规则](CONTRIBUTING.md)
 
