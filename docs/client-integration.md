@@ -39,9 +39,9 @@ Host projection wire view
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
 | GET | `/api/emotion-analyzer/v1/state` | — | `ModelState` |
-| POST | `/api/emotion-analyzer/v1/select` | `{ id }` | `ModelState` |
-| POST | `/api/emotion-analyzer/v1/download` | `{ id }` | `ModelState` |
-| POST | `/api/emotion-analyzer/v1/remove` | `{ id }` | `ModelState`（下载中也用来取消） |
+| POST | `/api/emotion-analyzer/v1/model/select` | `{ id }` | `ModelState` |
+| POST | `/api/emotion-analyzer/v1/model/download` | `{ id }` | `ModelState`（202，后台下载） |
+| DELETE | `/api/emotion-analyzer/v1/model/{id}` | — | `ModelState`（下载中也用来取消） |
 | POST | `/api/emotion-analyzer/v1/test` | `{ text }` | `ModelTestResult` |
 
 所有请求 `credentials: 'include'`、同源；非 2xx 会解析 `{ error | message | detail }` 并包装成 `ModelApiError`（404/409/422/5xx 有中文兜底）。`ModelState` 的关键字段：

@@ -262,12 +262,16 @@ test('live mode sends same-origin credentials and JSON bodies', async () => {
   assert.equal(state.source, 'live')
   assert.equal(state.current?.id, 'horizon-small')
   await api.selectModel('horizon-small')
+  assert.equal(requests[1]?.url, '/api/emotion-analyzer/v1/model/select')
   assert.equal(requests[1]?.init.method, 'POST')
   assert.equal(requests[1]?.init.credentials, 'include')
   assert.deepEqual(JSON.parse(String(requests[1]?.init.body)), { id: 'horizon-small' })
+  await api.removeModel('horizon-small')
+  assert.equal(requests[2]?.url, '/api/emotion-analyzer/v1/model/horizon-small')
+  assert.equal(requests[2]?.init.method, 'DELETE')
   const tested = await api.testModel('hello')
   assert.equal(tested.scores.pleasant, 0.8)
-  assert.equal(requests[2]?.url, '/api/emotion-analyzer/v1/test')
+  assert.equal(requests[3]?.url, '/api/emotion-analyzer/v1/test')
 })
 
 test('live mode surfaces server errors', async () => {
