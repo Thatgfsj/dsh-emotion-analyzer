@@ -52,7 +52,7 @@ async function buildHost() {
     if (!entry.endsWith('.js')) continue
     const path = join(root, 'lib', entry)
     const code = await readFile(path, 'utf8')
-    const rewritten = code.replace(/(from\s+')(\.{1,2}\/[^']+)\.ts(')/g, '$1$2.js$3')
+    const rewritten = code.replace(/(from\s+["'])(\.{1,2}\/[^"']+)\.ts(["'])/g, '$1$2.js$3')
     if (rewritten !== code) await writeFile(path, rewritten)
   }
 }
