@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Emotion Analyzer",
+    "description": "Local ONNX emotion scoring for every assistant reply, projected into the session and shown in a floating monitor."
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "name": "dsh-emotion-analyzer",
+  "version": "0.1.0",
+  "description": "DSH 情绪分析器：本地 ONNX 推理为每条主模型回复打分，投影进会话状态，并在 DSH 网站注入可拖拽的悬浮情绪监测框。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "icon": "./icon.svg",
+  "files": [
+    "lib/",
+    "locale/",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "scripts/",
+    "assets/README.md",
+    "assets/.gitignore"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Thatgfsj/dsh-emotion-analyzer.git"
+  },
+  "homepage": "https://github.com/Thatgfsj/dsh-emotion-analyzer#readme",
+  "bugs": {
+    "url": "https://github.com/Thatgfsj/dsh-emotion-analyzer/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "emotion",
+    "onnx",
+    "session-projection"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0",
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/",
+    "check": "npm run typecheck && npm run test",
+    "export:model": "python3 scripts/export_model.py",
+    "validate:model": "python3 scripts/validate.py"
+  },
+  "dependencies": {
+    "onnxruntime-node": "^1.23.0",
+    "zod": "^4.0.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-session": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}

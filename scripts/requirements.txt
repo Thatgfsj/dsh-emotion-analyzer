@@ -1,0 +1,11 @@
+# Python deps for scripts/export_model.py + scripts/validate.py
+# Install into a venv: python3 -m venv .venv && . .venv/bin/activate
+# CPU-only torch wheel (keep the index URL to avoid CUDA downloads):
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.6
+transformers>=4.48
+optimum[exporters]>=1.24
+onnx>=1.17
+onnxruntime>=1.20
+huggingface_hub>=0.26
+numpy>=1.26

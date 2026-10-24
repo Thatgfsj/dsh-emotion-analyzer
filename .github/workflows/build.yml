@@ -1,0 +1,37 @@
+# Build-time CI only. Per the repository policy, pull requests do NOT run
+# CI; the pipeline runs when a release tag is pushed or on manual dispatch.
+name: build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Package artifact
+        run: npm pack --silent
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-emotion-analyzer-${{ github.ref_name }}
+          path: '*.tgz'
+          if-no-files-found: error

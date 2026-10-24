@@ -1,0 +1,14 @@
+node_modules/
+lib/
+dist/
+demo/widget.iife.js
+assets/model*.onnx
+assets/tokenizer.json
+assets/*.onnx
+assets/*.onnx_data
+.worktrees/
+*.log
+.DS_Store
+__pycache__/
+.venv/
+*.pyc
