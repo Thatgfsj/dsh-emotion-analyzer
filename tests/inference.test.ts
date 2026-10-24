@@ -363,3 +363,34 @@ test('真实模型端到端：assets 存在时返回 11 维 [0,1] 分数（否�
     await scorer.dispose()
   }
 })
+test('自定义 labels：按模型标签数组输出分数，列数不符时降级', async () => {
+  const { logger } = captureLogger()
+  const session: SessionLike = {
+    async run() {
+      return { logits: { data: Float32Array.from([0, 1, 2]) } }
+    },
+  }
+  const scorer = new EmotionScorer({
+    session,
+    tokenizer: stubTokenizer(),
+    labels: ['alpha', 'beta', 'gamma'],
+    now: () => 0,
+    logger,
+  })
+  assert.equal(await scorer.init(), true)
+  assert.equal(scorer.labelCount, 3)
+  const scores = await scorer.score('hello')
+  assert.deepEqual(Object.keys(scores).sort(), ['alpha', 'beta', 'gamma'])
+  close(at(scores, 'alpha'), sigmoid(0))
+  close(at(scores, 'beta'), sigmoid(1))
+  close(at(scores, 'gamma'), sigmoid(2))
+
+  const mismatched = new EmotionScorer({
+    session,
+    tokenizer: stubTokenizer(),
+    labels: ['only-two', 'labels'],
+    now: () => 0,
+    logger,
+  })
+  assert.deepEqual(await mismatched.score('hello'), {})
+})

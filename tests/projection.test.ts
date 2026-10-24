@@ -82,3 +82,28 @@ test('projection unit ignores foreign and malformed records', () => {
   assert.ok((withRecord.scores.pleasant ?? 0) > 0.2)
   assert.equal(unit.wire?.view(withRecord), withRecord)
 })
+test('v0.2 记录携带 profileId：按记录自己的 profile 折叠，旧 v1 记录走 legacy', () => {
+  const unit = makeEmotionProjection((event) => event as { type: string; data: unknown } | undefined)
+  assert.equal(unit.stateVersion, 4)
+  let state = emptyEmotionState()
+  // v1 记录（没有 profileId）→ legacy-11
+  state = unit.apply(state, { type: EMOTION_RECORD_TYPE, data: record(1, { joy: 0.9 }) })
+  assert.ok((state.scores.pleasant ?? 0) > 0)
+  // v2 记录携带 go-emotions-28：28 标签也能折叠出统一维度
+  state = unit.apply(state, {
+    type: EMOTION_RECORD_TYPE,
+    data: { ...record(2, { joy: 0.9, grief: 0.8 }), version: 2, modelId: 'horizon-small', profileId: 'go-emotions-28' },
+  })
+  assert.ok((state.turnScores.pleasant ?? 0) > 0.5)
+  assert.ok((state.turnScores.sad ?? 0) > 0.5)
+  // 同一份 28 标签 raw 如果错误地挂 legacy profile，则不会被识别（只有 legacy 标签生效）
+  const legacyFold = unit.apply(emptyEmotionState(), {
+    type: EMOTION_RECORD_TYPE,
+    data: { ...record(1, { grief: 0.8 }), version: 2, modelId: 'x', profileId: 'legacy-11' },
+  })
+  assert.equal(
+    Object.values(legacyFold.turnScores).every((value) => value === 0),
+    true,
+    'legacy profile 不应该识别 GoEmotions 的 grief 标签',
+  )
+})

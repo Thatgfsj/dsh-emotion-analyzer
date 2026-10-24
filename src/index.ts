@@ -1,17 +1,22 @@
 /**
- * dsh-emotion-analyzer — Host entry.
+ * dsh-emotion-analyzer — Host entry（v0.2）。
  *
  * Flow (DSH 0.2.1-rc.2 calibrated):
  *   agent/turn-stopping { agent, turn, signal }   (serial)
  *     -> last assistant text
- *     -> EmotionScorer.score(text)                 (local ONNX, guarded)
- *     -> appendPluginRecord(plugin:emotion-analyzer/turn)
- *     -> the `emotion` session projection folds the record (pure, sync)
+ *     -> EmotionModelService.score(text)           (active model, lazy ONNX)
+ *     -> appendPluginRecord(plugin:emotion-analyzer/turn, v2 record)
+ *     -> the `emotion` session projection folds the record with its profile
  *     -> wire view reaches the browser, which renders the floating widget.
+ *
+ * v0.2 (#39): 模型由 `src/models/*` 管理（registry / download / settings /
+ * profiles），默认 horizon-small，未下载时回退 legacy assets；切换模型后
+ * 下一轮生效；Host routes 挂在 `/api/emotion-analyzer/v1/*`。
  */
 import { appendPluginRecord, pluginRecordOf } from '@deepseek-ai/dsh-session'
-import { EmotionScorer } from './inference.ts'
 import { EMOTION_RECORD_TYPE, registerEmotionProjection } from './projection.ts'
+import { EmotionModelService } from './models/service.ts'
+import { registerEmotionRoutes, type ConnectionLike } from './models/routes.ts'
 import { detectDoubt, detectLanguage, extractLastAssistantText, hashText, truncateForScoring } from './text.ts'
 import type { EmotionTurnRecord } from './types.ts'
 
@@ -38,6 +43,9 @@ interface HostContext {
   effect?: (fn: () => (() => void) | void) => unknown
   on?: (event: string, listener: (payload: TurnStoppingPayload) => unknown) => unknown
   sessionProjections?: unknown
+  /** Cordis 的惰性服务注入（可选服务用 inject 回调，不会阻塞插件加载）。 */
+  inject?: (names: string[], callback: (ctx: HostContext) => void) => unknown
+  connection?: ConnectionLike
 }
 
 interface TurnStoppingPayload {
@@ -78,9 +86,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
 
 /** One-instance lifecycle shared by every turn. */
 interface Runtime {
-  scorer: EmotionScorer
-  /** Lazily started on the first scored turn; activation-time loading would keep CLI processes alive. */
-  init: Promise<boolean> | undefined
+  service: EmotionModelService
   chains: Map<string, Promise<void>>
 }
 
@@ -90,22 +96,10 @@ interface Runtime {
  */
 export function apply(ctx: HostContext): void {
   const log = loggerOf(ctx)
-  const scorer = new EmotionScorer()
-  const runtime: Runtime = {
-    scorer,
-    init: undefined,
-    chains: new Map<string, Promise<void>>(),
-  }
-
-  const ensureInit = (): Promise<boolean> => {
-    if (runtime.init === undefined) {
-      runtime.init = scorer.init().catch((error: unknown) => {
-        log.error?.('[emotion-analyzer] model init failed:', error)
-        return false
-      })
-    }
-    return runtime.init
-  }
+  const service = new EmotionModelService({
+    logger: log as Pick<Console, 'warn' | 'error'>,
+  })
+  const runtime: Runtime = { service, chains: new Map<string, Promise<void>>() }
 
   const registry = ctx.sessionProjections
   if (registry === undefined || registry === null) {
@@ -117,9 +111,29 @@ export function apply(ctx: HostContext): void {
     pluginRecordOf as unknown as (event: unknown) => { type: string; data: unknown } | undefined,
   )
 
+  // Model management API（鉴权由 Connection 的 exact route 栅栏负责）。
+  // `connection` 是可选的 Web 服务：用 ctx.inject 惰性绑定，CLI/headless 下
+  // 即使没有 Connection 也不影响 turn-stopping 打分。
+  const registerRoutes = (connection: ConnectionLike): void => {
+    try {
+      registerEmotionRoutes(connection, service)
+    } catch (error) {
+      log.error?.('[emotion-analyzer] model routes registration failed:', error)
+    }
+  }
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['connection'], (connectionCtx) => {
+      if (connectionCtx.connection !== undefined) registerRoutes(connectionCtx.connection)
+    })
+  } else if (ctx.connection !== undefined && typeof ctx.connection.fetch?.register === 'function') {
+    registerRoutes(ctx.connection)
+  } else {
+    log.debug?.('[emotion-analyzer] connection service missing; model API routes disabled')
+  }
+
   if (typeof ctx.effect === 'function') {
     ctx.effect(() => () => {
-      void runtime.scorer.dispose()
+      void runtime.service.dispose()
       runtime.chains.clear()
     })
   }
@@ -130,32 +144,31 @@ export function apply(ctx: HostContext): void {
     if (session === undefined || typeof session.deriveMessages !== 'function' || typeof turn !== 'number') {
       return
     }
-    if (!(await ensureInit())) return
 
     const text = extractLastAssistantText(session.deriveMessages())
     if (text.length === 0) return
 
-    const startedAt = Date.now()
-    const scored = await withTimeout<Record<string, number>>(
-      runtime.scorer.score(truncateForScoring(text)),
+    const result = await withTimeout(
+      runtime.service.score(truncateForScoring(text)),
       SCORE_TIMEOUT_MS,
       'emotion scoring',
     )
-    const latencyMs = Date.now() - startedAt
-    if (scored === undefined || scored === null || Object.keys(scored).length === 0) {
+    if (result === undefined) {
       log.warn?.('[emotion-analyzer] empty score; turn left untouched')
       return
     }
-    // The model's surprise head does not fire on Chinese questions; add the
-    // host-side doubt heuristic as a derived signal (see issue #28).
+
+    // 宿主文本启发式：中文疑问句模型常不响应，`doubt` 与模型标签一起进入映射。
     const doubt = detectDoubt(text)
-    const raw: Record<string, number> = doubt > 0 ? { ...scored, doubt } : scored
+    const raw: Record<string, number> = doubt > 0 ? { ...result.raw, doubt } : result.raw
 
     const record: EmotionTurnRecord = {
-      version: 1,
+      version: 2,
       turn,
       raw,
-      latencyMs,
+      modelId: result.modelId,
+      profileId: result.profileId,
+      latencyMs: result.latencyMs,
       language: detectLanguage(text),
       textHash: hashText(text),
       chars: text.length,
@@ -172,7 +185,7 @@ export function apply(ctx: HostContext): void {
       log.error?.('[emotion-analyzer] append plugin record failed:', error)
       return
     }
-    log.debug?.(`[emotion-analyzer] turn ${turn} scored in ${latencyMs}ms`)
+    log.debug?.(`[emotion-analyzer] turn ${turn} scored by ${result.modelId} in ${result.latencyMs}ms`)
   }
 
   if (typeof ctx.on !== 'function') {
