@@ -13,7 +13,7 @@
 
 - **本地推理，零第三方模型 API**：XLM-RoBERTa-base 多语言情绪分类（11 标签多标签），ONNX INT8 动态量化，CPU 中位 **6.8ms/条**（p95 ≈ 8ms），不联网、不额外消耗主模型 Token。
 - **多语言**：中文 / 英文原生支持（训练数据 20+ 语言），按 CJK 占比显示语言标识。
-- **硬编码映射层**：11 个原始标签 → 8 个统一维度（happy/pleasant/sad/angry/anxious/unwell/**confused（疑问，surprise 代理）**/neutral），阈值过滤 + 衰减 + 步长 + 封顶，参数集中在 `src/mapping.ts`。
+- **硬编码映射层**：11 个原始标签 → 8 个统一维度（happy/pleasant/sad/angry/anxious/unwell/**confused（疑问 = surprise + doubt 文本启发式）**/neutral），阈值过滤 + 衰减 + 步长 + 封顶，参数集中在 `src/mapping.ts`。
 - **Session projection**：每轮分数以 `plugin:emotion-analyzer/turn`（ignorable）写入会话日志，由 `emotion` projection 单元纯同步 fold；重启、fork 自动恢复。
 - **悬浮框**：Web Components + Shadow DOM，演示态见下；拖拽、位置记忆、折叠 emoji 徽章、300ms 分数条动画、30 轮 canvas sparkline、明暗主题、关闭后设置页/右下角 💗 重开。
 

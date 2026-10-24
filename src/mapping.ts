@@ -60,6 +60,16 @@ export const RAW_EMOTION_LABELS = [
 /** 模型原始标签。 */
 export type RawEmotionLabel = (typeof RAW_EMOTION_LABELS)[number]
 
+/**
+ * 宿主侧派生信号（不是模型输出）：由 `src/text.ts` 的文本启发式给出。
+ * `doubt` 与 surprise 一起映射到“疑问”，解决中文疑问句 surprise 不响应的问题。
+ */
+export const DERIVED_LABELS = ['doubt'] as const
+/** 派生信号名。 */
+export type DerivedLabel = (typeof DERIVED_LABELS)[number]
+/** 参与映射的标签：模型原始标签 + 派生信号。 */
+export type ScoredLabel = RawEmotionLabel | DerivedLabel
+
 /** 写入 Session projection 的 8 个统一维度（含 surprise 代理的“疑问”）。 */
 export const EMOTION_DIMENSIONS = [
   'happy',
@@ -76,8 +86,8 @@ export const EMOTION_DIMENSIONS = [
 export type EmotionDimension = (typeof EMOTION_DIMENSIONS)[number]
 /** 一套完整的统一维度分数（每个维度都在 [0, 1]）。 */
 export type EmotionScores = Record<EmotionDimension, number>
-/** 模型原始分数：允许只给部分标签；未知标签在运行时会被忽略。 */
-export type RawScores = Readonly<Partial<Record<RawEmotionLabel, number>>>
+/** 模型原始分数 + 派生信号分数：允许部分标签；未知标签在运行时会被忽略。 */
+export type RawScores = Readonly<Partial<Record<ScoredLabel, number>>>
 
 /** 聚合方式：`max` 取参与标签的最大值，`wsum` 取加权和。 */
 export type AggregateKind = 'max' | 'wsum'
@@ -86,7 +96,7 @@ export type AggregateKind = 'max' | 'wsum'
 export interface EmotionRule {
   readonly kind: AggregateKind
   /** 参与聚合的 [原始标签, 权重]；`max` 的权重恒为 1，仅 `wsum` 用到权重。 */
-  readonly terms: ReadonlyArray<readonly [RawEmotionLabel, number]>
+  readonly terms: ReadonlyArray<readonly [ScoredLabel, number]>
 }
 
 /**
@@ -106,12 +116,14 @@ export const EMOTION_MAP: Readonly<Record<EmotionDimension, EmotionRule>> = {
   angry: { kind: 'max', terms: [['anger', 1], ['disgust', 1], ['contempt', 1], ['frustration', 1]] },
   anxious: { kind: 'max', terms: [['fear', 1], ['frustration', 1]] },
   unwell: { kind: 'wsum', terms: [['sadness', 0.5], ['disgust', 0.4]] },
-  confused: { kind: 'max', terms: [['surprise', 1]] },
+  // `doubt` 是宿主文本启发式（非模型标签）；surprise 只覆盖“惊讶”，
+  // 中文疑问/不确定句需要 doubt 才能命中（见 issue #28）。
+  confused: { kind: 'max', terms: [['surprise', 1], ['doubt', 1]] },
   neutral: { kind: 'max', terms: [['neutral', 1]] },
 }
 
-/** 被某个统一维度实际消费的原始标签（当前 11 个全部被消费）。 */
-const MAPPED_LABELS: readonly RawEmotionLabel[] = [
+/** 被某个统一维度实际消费的标签（11 个模型标签 + doubt 派生信号）。 */
+const MAPPED_LABELS: readonly ScoredLabel[] = [
   ...new Set(EMOTION_DIMENSIONS.flatMap((dimension) => EMOTION_MAP[dimension].terms.map(([label]) => label))),
 ]
 
@@ -128,13 +140,13 @@ export function clamp01(value: number): number {
 }
 
 /** 读取一个原始标签的分数：缺失 / 非法值按 0 处理，并钳制到 [0, 1]。 */
-function readLabel(scores: RawScores | null | undefined, label: RawEmotionLabel): number {
+function readLabel(scores: RawScores | null | undefined, label: ScoredLabel): number {
   if (!scores) return 0
   const value = scores[label]
   return typeof value === 'number' ? clamp01(value) : 0
 }
 
-/** 是否至少提供了一个被映射的原始标签分数（未知标签、`surprise` 不算）。 */
+/** 是否至少提供了一个被映射的标签分数（未知标签不算）。 */
 function hasMappedInput(scores: RawScores | null | undefined): boolean {
   if (!scores) return false
   return MAPPED_LABELS.some((label) => {
@@ -168,7 +180,7 @@ export function normalizeProjection(current: Partial<Record<EmotionDimension, nu
 }
 
 /**
- * 聚合原始分数，得到 7 个统一维度的“本轮原始强度”（未做阈值 / 衰减）。
+ * 聚合原始分数，得到 8 个统一维度的“本轮原始强度”（未做阈值 / 衰减）。
  *
  * 只做聚合，不修改入参；结果已钳制到 [0, 1]，可直接用于断言与调试。
  */
@@ -204,8 +216,8 @@ function decayAll(current: EmotionScores): EmotionScores {
  * 用本轮原始分数更新累积投影。
  *
  * 算法（按顺序）：
- * 1. 聚合：11 个原始标签 → 7 个统一维度（见 {@link aggregate}）。
- * 2. 门控：本轮没有任何被映射的输入（空对象 / 只有 `surprise` / 全是非法值）
+ * 1. 聚合：原始标签 + doubt 派生信号 → 8 个统一维度（见 {@link aggregate}）。
+ * 2. 门控：本轮没有任何被映射的输入（空对象 / 全是非法值）
  *    视为“无输入”，所有维度纯衰减；有输入但所有维度聚合值都低于
  *    {@link THRESHOLD} 时视为噪声，直接返回当前状态的副本（不积累、不衰减）。
  * 3. 命中（聚合值 ≥ THRESHOLD）：next = min(CAP, old * DECAY + min(raw, STEP_MAX))。
