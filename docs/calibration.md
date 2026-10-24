@@ -16,3 +16,4 @@
 - projection 的 `apply` **必须同步且纯**，因此推理结果不能直接在 fold 里跑模型：改为先把每轮分数写入 `plugin:` 记录，再让 projection 纯 fold 该记录。这样自然满足"重启恢复"。
 - 不使用 `Session.append()` 自定义新事件类型（`Session.append` 写不出 `ignorable: true`，会让会话打不开）。
 - 客户端不 `require` 任何 `@deepseek-ai/dsh-client-*` 运行时；只使用 `react`/`react-dom` 平台种子与 `ctx.slots` 服务。
+- **原生模块必须惰性加载**：`onnxruntime-node` 的 InferenceSession 会持有工作线程，插件激活时就加载模型会让 CLI `dsh --help` / 一次性 headless 进程无法退出。这里改到第一次 `agent/turn-stopping` 才 `init()`（仍为单例）。
