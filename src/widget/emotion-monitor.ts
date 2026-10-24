@@ -187,7 +187,9 @@ export class EmotionMonitorElement extends HTMLElement {
     this.latencyEl = requireElement<HTMLSpanElement>(this.shadow, '.meta .latency')
     this.buildScoreRows()
     this.bindEvents()
-    this.applyView(this.view)
+    // NOTE: a custom element constructor must not add attributes or children to
+    // the host (createElement would throw NotSupportedError). applyView() sets
+    // host attributes/styles, so it runs from connectedCallback instead.
   }
 
   /* ---------------------------------------------------------------- */
@@ -196,6 +198,7 @@ export class EmotionMonitorElement extends HTMLElement {
 
   connectedCallback(): void {
     this.applyHostChrome()
+    this.applyView(this.view)
     if (!this.restored) {
       this.restorePreferences()
       this.restored = true
