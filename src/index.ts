@@ -79,7 +79,8 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
 /** One-instance lifecycle shared by every turn. */
 interface Runtime {
   scorer: EmotionScorer
-  init: Promise<boolean>
+  /** Lazily started on the first scored turn; activation-time loading would keep CLI processes alive. */
+  init: Promise<boolean> | undefined
   chains: Map<string, Promise<void>>
 }
 
@@ -92,11 +93,18 @@ export function apply(ctx: HostContext): void {
   const scorer = new EmotionScorer()
   const runtime: Runtime = {
     scorer,
-    init: scorer.init().catch((error: unknown) => {
-      log.error?.('[emotion-analyzer] model init failed:', error)
-      return false
-    }),
+    init: undefined,
     chains: new Map<string, Promise<void>>(),
+  }
+
+  const ensureInit = (): Promise<boolean> => {
+    if (runtime.init === undefined) {
+      runtime.init = scorer.init().catch((error: unknown) => {
+        log.error?.('[emotion-analyzer] model init failed:', error)
+        return false
+      })
+    }
+    return runtime.init
   }
 
   const registry = ctx.sessionProjections
@@ -122,7 +130,7 @@ export function apply(ctx: HostContext): void {
     if (session === undefined || typeof session.deriveMessages !== 'function' || typeof turn !== 'number') {
       return
     }
-    if (!(await runtime.init)) return
+    if (!(await ensureInit())) return
 
     const text = extractLastAssistantText(session.deriveMessages())
     if (text.length === 0) return
