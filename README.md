@@ -10,7 +10,7 @@
 
 ## 状态
 
-工程骨架已就绪，模块实现见 Issue #2–#8（模型导出、映射、推理、宿主集成、悬浮框、客户端桥、文档）。
+已完成：模型导出/自验收（#2）、映射层（#3）、本地推理（#4）、宿主集成（#5）、悬浮框（#6）、客户端桥（#7）。端到端验收与 v0.1.0 发布见 #8。
 
 ## 安装
 
@@ -66,6 +66,9 @@ await scorer.dispose()
 ## 文档
 
 - [架构](docs/architecture.md)
+- [客户端集成](docs/client-integration.md)
+- [悬浮框](docs/widget.md)
+- [模型导出](docs/model-export.md)
 - [模型导出与量化](docs/model-export.md)
 - [悬浮框 `<emotion-monitor>`](docs/widget.md)
 - [DSH 宿主 API 校准](docs/calibration.md)
