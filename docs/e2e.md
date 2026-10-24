@@ -34,10 +34,10 @@ CDP 断言（真实页面）：
 | `customElements.get('emotion-monitor')` | function |
 | `document.createElement('emotion-monitor')` | 不抛错，构造函数为自定义类，shadowRoot 存在 |
 | portal 容器 `[data-dsh-emotion-analyzer]` | 1 个 |
-| 元素尺寸（展开） | 328×139 |
-| 点击折叠按钮 | `data-view=collapsed`、48×48、徽章 emoji 😐 |
-| hover 徽章 | `data-preview=true`（220ms 预览） |
-| 点击徽章 | 恢复 `data-view=expanded` |
+| 默认态 | `data-view=collapsed`、48×48、徽章 emoji 😐 |
+| 点击徽章 | 展开 328×139（等待态面板；有数据时含分数条/sparkline） |
+| 点击折叠按钮 | 回到 `data-view=collapsed`、48×48 |
+| hover 徽章 | 不展开（#31 移除 hover 预览） |
 | 页面 console | 修复 #20 后 0 个异常 |
 
 ## 未验证 / 已知限制

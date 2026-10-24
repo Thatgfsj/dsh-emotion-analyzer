@@ -4,7 +4,7 @@ Shadow DOM 情绪悬浮框：**默认是 48px emoji 徽章，点击展开详细�
 
 ![展开态](screenshots/widget-expanded.png)
 
-| 折叠徽章（开心主导） | 暗色主题 |
+| compact 默认（愉快主导） | 暗色主题 |
 |---|---|
 | ![折叠徽章](screenshots/widget-collapsed.png) | ![暗色](screenshots/widget-dark.png) |
 
@@ -26,7 +26,7 @@ demo 支持 URL 参数，方便截图与排查：
 | 参数 | 示例 | 含义 |
 |---|---|---|
 | `theme` | `?theme=dark` | `light` / `dark` / `system`（默认 system） |
-| `view` | `?view=collapsed` | `collapsed` / `closed` / 默认展开 |
+| `view` | `?view=expanded` | `expanded` / `collapsed` / `closed`（默认 compact 徽章） |
 | `lang` | `?lang=en` | 初始语言标识 |
 | `empty` | `?empty=1` | 保留「等待第一条回复」空状态，不灌 mock 历史 |
 
@@ -106,8 +106,9 @@ element.update({
 ## 交互
 
 - **拖拽**：标题栏 pointer events + `setPointerCapture`；移动过程实时 clamp 在 viewport 内（边距 12px），松手写入 localStorage。窗口 resize 后也会重新 clamp。
-- **默认 compact / 展开**：默认 48px 圆形徽章，显示本回合主导情绪 emoji：pleasant 😊 / sad 😢 / angry 😠 / anxious 😟 / unwell 🤢 / confused 🤔 / neutral 😐；点击徽章展开详细面板，点标题栏 `—` 收起；背景是「主色 + 强度」的 145° 渐变与同色投影。
-- **点击展开/收起**：点击徽章展开详细面板，点标题栏 `—` 收起；不再有 hover 自动预览（#31）。
+- **默认 compact**：启动时只显示 48px 圆形徽章，显示本回合主导情绪 emoji：pleasant 😊 / sad 😢 / angry 😠 / anxious 😟 / unwell 🤢 / confused 🤔 / neutral 😐；背景是「主色 + 强度」的 145° 渐变与同色投影。
+- **点击展开 / [—] 收起**：点击徽章才展开详细面板（分数条 + sparkline + 元信息）；点标题栏 `—` 回到 48px 徽章。刷新页面后仍以 compact 启动（#31）。
+- **无 hover 预览**：hover 徽章只有轻微放大反馈，不会自动展开，避免误触（#31）。
 - **关闭**：`×` 隐藏元素并写入 `closed=1`；宿主或 `show()` 恢复。
 - **等待态**：尚未收到任何 `update` 时显示「等待第一条回复…」（不渲染空分数条与空折线）；收到第一轮后自动切换。
 - **rAF 合并**：同一帧内多次 `update` 只渲染一次；分数条 `width` 使用 300ms `cubic-bezier(.22,.61,.36,1)` 过渡。
@@ -119,7 +120,7 @@ element.update({
 | 键 | 值 | 写入时机 |
 |---|---|---|
 | `dsh-emotion-monitor:position` | `{"x":852,"y":20}` | 拖拽结束 / 视口 clamp |
-| `dsh-emotion-monitor:collapsed` | `"1"` / `"0"` | 折叠 / 展开 |
+| `dsh-emotion-monitor:collapsed` | `"1"` / `"0"` | 最近一次折叠/展开交互（启动固定为 compact，仅设置页清理用） |
 | `dsh-emotion-monitor:closed` | `"1"`（恢复时删除） | 关闭 / `show()` |
 | `dsh-emotion-monitor:trend` | `[{"pleasant":0.84,...}, ...]` | 每次 `update`（最多 30 轮，分数保留 3 位小数） |
 
@@ -167,8 +168,11 @@ npm run build      # demo/widget.iife.js
 - Shadow DOM：open shadow root、7 行分数条、面板字体 ≠ 宿主字体、标签颜色 ≠ 红、按钮 ≠ 荧光粉、canvas 无 lime 描边；
 - 布局：无横向溢出、canvas 有 backing bitmap、300ms 过渡、meta 文本为 `Turn N · 中文 · 34ms`；
 - 拖拽：真实 pointer 事件位移、位置写入 localStorage、拖到右下角被 clamp、窗口 resize 后仍在视口内；
-- 折叠：48×48 徽章、😊 正确、渐变背景、`collapsed=1`、collapse 事件；
-- hover 预览：220ms 后展开且面板不超出视口，移开收回；
+- 默认 compact：首屏 `data-view=collapsed`、48×48、详细面板 `display:none`、徽章 emoji/渐变正确；
+- 点击徽章：展开宽度 328px（有数据时含分数条/sparkline/元信息；空数据 328×139），再次点击标题栏 `—` 回到 48×48；
+- 无 hover 预览：徽章 hover 500ms 后仍 `data-view=collapsed`、无 `data-preview`，面板不出现；
+- 刷新：展开后 reload，首屏仍为 compact（不记忆上次展开态）；
+- 折叠：48×48 徽章、😊 正确、渐变背景、`collapsed` 键、collapse 事件；
 - 关闭/重开：`display:none`、`closed=1`、close 事件；`show()` 恢复 + open 事件；
 - 暗色：`prefers-color-scheme: dark` 下背景亮度 < 60；`data-theme="light"` 能反向覆盖系统暗色；
 - 等待态：`等待第一条回复…`、分数/趋势隐藏、meta 为 `Turn – · 中文 · --`，首个 update 后切换；
@@ -188,7 +192,7 @@ npm run build      # demo/widget.iife.js
 - 位置以 CSS px 记忆，浏览器缩放/多显示器 DPI 变化不会重新换算；
 - 窗口小于面板尺寸时只能保证左上角 12px 边距，无法完整显示；
 - 关闭状态是全局的，不区分 session；
-- 折叠态 hover 预览会比页面内容优先，靠近边缘时会覆盖到左侧/上侧内容（已被视口 clamp）；
+- hover 徽章只有视觉放大，不会展开面板；展开必须点击；
 - 分数以整数百分比显示，`0.004` 会显示 `0%`；
 - 依赖 Node ≥22.18（本机 24）运行 `.ts` 测试；旧 Node 20 需要 `--experimental-strip-types`。
 
@@ -198,8 +202,8 @@ npm run build      # demo/widget.iife.js
 
 1. `npm run build`；
 2. 启动 `google-chrome --headless=new --remote-debugging-port=0`；
-3. 打开 `demo/index.html?theme=light`，等待渲染后 `Page.captureScreenshot`；
-4. 通过 `Runtime.evaluate` / `Input.dispatchMouseEvent` 验证折叠、hover、拖拽、关闭与主题，并输出 `docs/screenshots/*.png`（每张 < 200KB）。
+3. 打开 `demo/index.html?theme=light`（compact 默认态）与 `?theme=light&view=expanded`（展开态），等待渲染后 `Page.captureScreenshot`；
+4. 通过 `Runtime.evaluate` / `Input.dispatchMouseEvent` 验证点击徽章展开、`[—]` 收起、无 hover 预览、关闭/重开与明暗主题，并输出 `docs/screenshots/*.png`（每张 < 200KB）。
 
 ## 真实 DSH 页面验证（emo-web profile）
 
@@ -207,4 +211,4 @@ Headless Chrome CDP 在真实 DSH Web 页面验证：
 
 - `<emotion-monitor>` 正常升级（修复前构造函数写宿主属性导致 `NotSupportedError`，页面只有 HTMLUnknownElement —— 见 #20）。
 - 展开态截图：[real-page-expanded.png](screenshots/real-page-expanded.png)；折叠徽章截图：[real-page-collapsed.png](screenshots/real-page-collapsed.png)。
-- 点击折叠 → `data-view=collapsed`、48×48、😐 徽章；hover 出现预览；点击徽章恢复展开。
+- 点击折叠 → `data-view=collapsed`、48×48、😐 徽章；hover 不再展开（#31）；点击徽章恢复展开。
