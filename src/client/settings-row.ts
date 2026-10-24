@@ -126,7 +126,7 @@ export function createSettingsSection(React: any): (props?: Record<string, unkno
       'div',
       { 'data-emotion-analyzer-section': '', style: { display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '640px' } },
       React.createElement('p', { style: { margin: 0, fontSize: '13px', lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary, #4b5563)' } },
-        '对主模型每条回复做本地情绪打分，并在页面右上角显示悬浮框。关闭悬浮框后，可以在这里或通过右下角的 💗 按钮重新打开。'),
+        '对主模型每条回复做本地情绪打分，并在页面右上角显示紧凑 emoji 徽章。悬浮框的显示/隐藏只由本页开关控制。'),
       React.createElement(
         'label',
         { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' } },

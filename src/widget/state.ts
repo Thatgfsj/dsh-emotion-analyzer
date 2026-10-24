@@ -53,10 +53,17 @@ export const EMOTION_META: Record<EmotionDimension, EmotionMeta> = {
 export const MAX_TREND = 30
 /** Expanded panel width in CSS pixels (mirrored by styles.ts). */
 export const WIDGET_WIDTH = 328
-/** Collapsed badge diameter in CSS pixels. */
-export const BADGE_SIZE = 48
+/** Collapsed badge size in CSS pixels (emoji + Chinese emotion label). */
+export const BADGE_SIZE = 64
+/** Movement (px) beyond which a pointer gesture is a drag, not a click. */
+export const DRAG_THRESHOLD = 4
 /** Minimum distance between the floating widget and the viewport edges. */
 export const VIEWPORT_MARGIN = 12
+
+/** Euclidean distance check used to separate drag from click (issue #34). */
+export function exceedsDragThreshold(dx: number, dy: number, threshold: number = DRAG_THRESHOLD): boolean {
+  return Math.sqrt(dx * dx + dy * dy) > threshold
+}
 
 /** localStorage keys owned by the widget. */
 export const STORAGE_PREFIX = 'dsh-emotion-monitor:'

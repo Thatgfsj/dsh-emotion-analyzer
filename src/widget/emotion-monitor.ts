@@ -13,6 +13,7 @@ import { drawSparkline } from './sparkline.js'
 import { WIDGET_STYLES } from './styles.js'
 import {
   BADGE_SIZE,
+  DRAG_THRESHOLD,
   EMOTION_DIMENSIONS,
   EMOTION_META,
   MAX_TREND,
@@ -24,6 +25,7 @@ import {
   clampPosition,
   deserializeTrend,
   emptyState,
+  exceedsDragThreshold,
   formatLatency,
   formatTurn,
   languageLabel,
@@ -60,6 +62,7 @@ interface DragState {
   originX: number
   originY: number
   moved: boolean
+  source: 'titlebar' | 'badge'
 }
 
 function storageGet(key: string): string | null {
@@ -103,7 +106,6 @@ const TEMPLATE = `
     <span class="session" hidden></span>
     <span class="actions">
       <button class="icon-btn" type="button" data-action="collapse" aria-label="折叠为徽章" title="折叠">—</button>
-      <button class="icon-btn" type="button" data-action="close" aria-label="关闭情绪监测器" title="关闭">×</button>
     </span>
   </header>
   <div class="body" part="body">
@@ -127,6 +129,7 @@ const TEMPLATE = `
 </div>
 <button class="badge" type="button" part="badge" aria-label="展开情绪监测器">
   <span class="badge-emoji" aria-hidden="true">😐</span>
+  <span class="badge-label" aria-hidden="true">平静</span>
 </button>
 `
 
@@ -146,6 +149,7 @@ export class EmotionMonitorElement extends HTMLElement {
   private readonly canvas: HTMLCanvasElement
   private readonly badge: HTMLButtonElement
   private readonly badgeEmoji: HTMLSpanElement
+  private readonly badgeLabel: HTMLSpanElement
   private readonly turnEl: HTMLSpanElement
   private readonly langEl: HTMLSpanElement
   private readonly latencyEl: HTMLSpanElement
@@ -155,6 +159,7 @@ export class EmotionMonitorElement extends HTMLElement {
   private view: ViewMode = 'collapsed'
   private closed = false
   private hasData = false
+  private suppressBadgeClick = false
   private preview = false
   private previewTimer = 0
   private rafId = 0
@@ -182,6 +187,7 @@ export class EmotionMonitorElement extends HTMLElement {
     this.canvas = requireElement<HTMLCanvasElement>(this.shadow, '.sparkline')
     this.badge = requireElement<HTMLButtonElement>(this.shadow, '.badge')
     this.badgeEmoji = requireElement<HTMLSpanElement>(this.shadow, '.badge-emoji')
+    this.badgeLabel = requireElement<HTMLSpanElement>(this.shadow, '.badge-label')
     this.turnEl = requireElement<HTMLSpanElement>(this.shadow, '.meta .turn')
     this.langEl = requireElement<HTMLSpanElement>(this.shadow, '.meta .lang')
     this.latencyEl = requireElement<HTMLSpanElement>(this.shadow, '.meta .latency')
@@ -361,22 +367,24 @@ export class EmotionMonitorElement extends HTMLElement {
 
   private bindEvents(): void {
     const collapseButton = requireElement<HTMLButtonElement>(this.shadow, '[data-action="collapse"]')
-    const closeButton = requireElement<HTMLButtonElement>(this.shadow, '[data-action="close"]')
-
     collapseButton.addEventListener('click', () => this.setCollapsed(true, true))
-    closeButton.addEventListener('click', () => this.hide())
 
+    // Issue #34: the compact badge is itself draggable; a gesture that moves
+    // more than DRAG_THRESHOLD px is a drag and must not expand the panel.
+    this.badge.addEventListener('pointerdown', (event) => this.handleBadgePointerDown(event))
+    this.badge.addEventListener('pointermove', (event) => this.handleDragMove(event))
+    this.badge.addEventListener('pointerup', (event) => this.handleDragEnd(event, true))
+    this.badge.addEventListener('pointercancel', (event) => this.handleDragEnd(event, false))
     this.badge.addEventListener('click', (event) => {
       event.preventDefault()
+      if (this.suppressBadgeClick) {
+        this.suppressBadgeClick = false
+        return
+      }
       this.endPreview()
       this.setCollapsed(false, true)
     })
-    // Issue #31: no hover auto-preview — the panel opens only on click.
-
-    this.addEventListener('pointerleave', () => {
-      this.clearPreviewTimer()
-      if (this.preview) this.endPreview()
-    })
+    // Issue #31/#34: no hover auto-preview — the panel opens only on click.
 
     this.titlebar.addEventListener('pointerdown', (event) => this.handleDragStart(event))
     this.titlebar.addEventListener('pointermove', (event) => this.handleDragMove(event))
@@ -502,6 +510,7 @@ export class EmotionMonitorElement extends HTMLElement {
     const meta = EMOTION_META[state.dominant]
     const dominantPercent = scorePercent(dominantIntensity)
     this.badgeEmoji.textContent = meta.emoji
+    this.badgeLabel.textContent = meta.label
     this.badge.style.background = badgeBackground(state.dominant, dominantIntensity)
     this.badge.style.setProperty('--em-badge-glow', badgeGlow(state.dominant, dominantIntensity))
     this.badge.title = meta.label + ' ' + dominantPercent + '% · 点击展开'
@@ -513,7 +522,7 @@ export class EmotionMonitorElement extends HTMLElement {
     this.setAttribute('data-dominant', state.dominant)
     this.setAttribute('data-status', this.hasData ? 'ready' : 'waiting')
 
-    if (this.view === 'expanded' || this.preview) this.redrawSparkline()
+    if (this.view === 'expanded') this.redrawSparkline()
   }
 
   private redrawSparkline(): void {
@@ -598,18 +607,13 @@ export class EmotionMonitorElement extends HTMLElement {
   }
 
   /* ---------------------------------------------------------------- */
-  /* Drag (pointer events on the title bar)                            */
+  /* Drag (pointer events on the title bar and compact badge)          */
   /* ---------------------------------------------------------------- */
 
-  private handleDragStart(event: PointerEvent): void {
+  private beginDrag(event: PointerEvent, source: 'titlebar' | 'badge'): void {
     if (event.button !== 0) return
-    const target = event.target
-    if (target instanceof Element && target.closest('button')) return
-    if (this.view !== 'expanded') {
-      if (this.preview) this.setCollapsed(false, true)
-      return
-    }
     event.preventDefault()
+    if (source === 'badge') this.suppressBadgeClick = false
     const position = this.currentPosition()
     this.drag = {
       pointerId: event.pointerId,
@@ -618,9 +622,24 @@ export class EmotionMonitorElement extends HTMLElement {
       originX: position.x,
       originY: position.y,
       moved: false,
+      source,
     }
-    this.titlebar.setPointerCapture(event.pointerId)
-    this.titlebar.classList.add('is-dragging')
+    const target = source === 'badge' ? this.badge : this.titlebar
+    target.setPointerCapture(event.pointerId)
+    target.classList.add('is-dragging')
+  }
+
+  private handleDragStart(event: PointerEvent): void {
+    if (event.button !== 0) return
+    const target = event.target
+    if (target instanceof Element && target.closest('button')) return
+    if (this.view !== 'expanded') return
+    this.beginDrag(event, 'titlebar')
+  }
+
+  private handleBadgePointerDown(event: PointerEvent): void {
+    if (event.button !== 0 || this.view !== 'collapsed' || this.closed) return
+    this.beginDrag(event, 'badge')
   }
 
   private handleDragMove(event: PointerEvent): void {
@@ -628,13 +647,13 @@ export class EmotionMonitorElement extends HTMLElement {
     if (!drag || drag.pointerId !== event.pointerId) return
     const dx = event.clientX - drag.startX
     const dy = event.clientY - drag.startY
-    if (!drag.moved && Math.abs(dx) + Math.abs(dy) >= 3) drag.moved = true
+    if (!drag.moved && exceedsDragThreshold(dx, dy, DRAG_THRESHOLD)) drag.moved = true
     if (!drag.moved) return
     const clamped = clampPosition(
       drag.originX + dx,
       drag.originY + dy,
-      this.offsetWidth || WIDGET_WIDTH,
-      this.offsetHeight || 360,
+      this.offsetWidth || (this.view === 'collapsed' ? BADGE_SIZE : WIDGET_WIDTH),
+      this.offsetHeight || (this.view === 'collapsed' ? BADGE_SIZE : 360),
       window.innerWidth,
       window.innerHeight,
     )
@@ -646,10 +665,12 @@ export class EmotionMonitorElement extends HTMLElement {
     const drag = this.drag
     if (!drag || drag.pointerId !== event.pointerId) return
     this.drag = null
-    this.titlebar.classList.remove('is-dragging')
-    if (this.titlebar.hasPointerCapture(event.pointerId)) {
-      this.titlebar.releasePointerCapture(event.pointerId)
+    const target = drag.source === 'badge' ? this.badge : this.titlebar
+    target.classList.remove('is-dragging')
+    if (target.hasPointerCapture(event.pointerId)) {
+      target.releasePointerCapture(event.pointerId)
     }
+    if (drag.source === 'badge') this.suppressBadgeClick = drag.moved
     if (drag.moved && persist) {
       storageSet(STORAGE_KEYS.position, JSON.stringify(this.currentPosition()))
     }

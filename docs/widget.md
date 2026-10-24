@@ -1,6 +1,6 @@
 # 悬浮框 `<emotion-monitor>`
 
-Shadow DOM 情绪悬浮框：**默认是 48px emoji 徽章，点击展开详细面板、再点 [—] 折叠**；可拖拽、30 轮 canvas 趋势线、明暗双主题，样式与宿主页面完全隔离（#31）。
+Shadow DOM 情绪悬浮框：**默认是 64px «emoji + 中文情绪» compact 徽章，点击展开详细面板、再点 [—] 折叠**；compact 徽章和展开面板都可拖拽，30 轮 canvas 趋势线、明暗双主题，样式与宿主页面完全隔离（#31、#34）。
 
 ![展开态](screenshots/widget-expanded.png)
 
@@ -97,19 +97,20 @@ element.update({
 
 | 事件名 | 触发 | `detail` | 冒泡/穿透 |
 |---|---|---|---|
-| `emotion-monitor-close` | 点击 `×` 或调用 `hide()` | `{ turn, sessionId? }` | `bubbles: true, composed: true` |
+| `emotion-monitor-collapse` | 用户点击 `[—]` 或徽章 | `{ collapsed: boolean }` | `bubbles: true, composed: true` |
+| `emotion-monitor-close` | 仅程序化调用 `hide()`（widget 内已无 `[×]`） | `{ turn, sessionId? }` | 同上 |
 | `emotion-monitor-open` | 从关闭态调用 `show()` | `{ turn, sessionId? }` | 同上 |
-| `emotion-monitor-collapse` | 用户点击折叠按钮 / 徽章 | `{ collapsed: boolean }` | 同上 |
 
-宿主监听 close/open 来显示/隐藏右下角「💗 重开」按钮。
+显示/隐藏由宿主按 Settings → 情绪分析器的开关决定；widget 不再渲染「💗 重开」chip，也没有展开态 `[×]` 关闭按钮（#34）。
 
 ## 交互
 
-- **拖拽**：标题栏 pointer events + `setPointerCapture`；移动过程实时 clamp 在 viewport 内（边距 12px），松手写入 localStorage。窗口 resize 后也会重新 clamp。
-- **默认 compact**：启动时只显示 48px 圆形徽章，显示本回合主导情绪 emoji：pleasant 😊 / sad 😢 / angry 😠 / anxious 😟 / unwell 🤢 / confused 🤔 / neutral 😐；背景是「主色 + 强度」的 145° 渐变与同色投影。
-- **点击展开 / [—] 收起**：点击徽章才展开详细面板（分数条 + sparkline + 元信息）；点标题栏 `—` 回到 48px 徽章。刷新页面后仍以 compact 启动（#31）。
-- **无 hover 预览**：hover 徽章只有轻微放大反馈，不会自动展开，避免误触（#31）。
-- **关闭**：`×` 隐藏元素并写入 `closed=1`；宿主或 `show()` 恢复。
+- **拖拽**：展开态拖标题栏、compact 态拖徽章，pointer events + `setPointerCapture`；移动过程实时 clamp 在 viewport 内（边距 12px），松手写入 localStorage。窗口 resize 后也会重新 clamp。
+- **默认 compact（64×64）**：启动时显示圆形徽章，**emoji + 下方中文情绪**（如 😊 / 愉快）：pleasant 😊 愉快 / sad 😢 悲伤 / angry 😠 愤怒 / anxious 😟 焦虑 / unwell 🤢 反感 / confused 🤔 疑问 / neutral 😐 平静；背景是「主色 + 强度」的 145° 渐变与同色投影。
+- **点击展开 / [—] 收起**：点击徽章才展开详细面板（分数条 + sparkline + 元信息）；点标题栏 `—` 回到 compact 徽章。刷新页面后仍以 compact 启动（#31）。
+- **拖拽阈值 4px**：从徽章按下后移动 ≤4px 仍视为点击（展开）；>4px 视为拖拽，只移动/持久化位置，**不触发展开**（#34）。
+- **无 hover 预览**：hover 徽章只有轻微放大反馈，不会自动展开，避免误触（#31/#34）。
+- **显示/隐藏**：widget 内没有 `[×]` 与重开 chip，只由 Settings → 情绪分析器的开关控制（#34）。
 - **等待态**：尚未收到任何 `update` 时显示「等待第一条回复…」（不渲染空分数条与空折线）；收到第一轮后自动切换。
 - **rAF 合并**：同一帧内多次 `update` 只渲染一次；分数条 `width` 使用 300ms `cubic-bezier(.22,.61,.36,1)` 过渡。
 - **主题**：`prefers-color-scheme` 自动跟随；宿主可设置 `data-theme="light"|"dark"` 强制覆盖；`prefers-reduced-motion` 下关闭过渡与脉冲。
@@ -121,7 +122,7 @@ element.update({
 |---|---|---|
 | `dsh-emotion-monitor:position` | `{"x":852,"y":20}` | 拖拽结束 / 视口 clamp |
 | `dsh-emotion-monitor:collapsed` | `"1"` / `"0"` | 最近一次折叠/展开交互（启动固定为 compact，仅设置页清理用） |
-| `dsh-emotion-monitor:closed` | `"1"`（恢复时删除） | 关闭 / `show()` |
+| `dsh-emotion-monitor:closed` | `"1"`（恢复时删除） | 兼容旧版程序化 `hide()`；新 UI 无 `[×]` |
 | `dsh-emotion-monitor:trend` | `[{"pleasant":0.84,...}, ...]` | 每次 `update`（最多 30 轮，分数保留 3 位小数） |
 
 读取/写入均包在 try/catch 中：隐私模式或禁用存储时 widget 仍可工作，只是不记忆。关闭后重新打开页面会保持隐藏（`closed=1`），符合「设置里重开」的约定。
@@ -168,12 +169,13 @@ npm run build      # demo/widget.iife.js
 - Shadow DOM：open shadow root、7 行分数条、面板字体 ≠ 宿主字体、标签颜色 ≠ 红、按钮 ≠ 荧光粉、canvas 无 lime 描边；
 - 布局：无横向溢出、canvas 有 backing bitmap、300ms 过渡、meta 文本为 `Turn N · 中文 · 34ms`；
 - 拖拽：真实 pointer 事件位移、位置写入 localStorage、拖到右下角被 clamp、窗口 resize 后仍在视口内；
-- 默认 compact：首屏 `data-view=collapsed`、48×48、详细面板 `display:none`、徽章 emoji/渐变正确；
-- 点击徽章：展开宽度 328px（有数据时含分数条/sparkline/元信息；空数据 328×139），再次点击标题栏 `—` 回到 48×48；
+- 默认 compact：首屏 `data-view=collapsed`、64×64、详细面板 `display:none`、徽章 emoji + 下方中文情绪/渐变正确；
+- 点击徽章：展开宽度 328px（有数据时含分数条/sparkline/元信息；空数据 328×139），再次点击标题栏 `—` 回到 64×64；
 - 无 hover 预览：徽章 hover 500ms 后仍 `data-view=collapsed`、无 `data-preview`，面板不出现；
+- 徽章拖动：真实 pointer 移动 >4px 后只移动/持久化位置，`data-view` 仍为 collapsed（不误触展开）；松手后再次点击仍能展开；
+- 展开态无 `[×]`：`shadowRoot` 内只有 `[—]`；client overlay 不再渲染「💗 重开」chip；
 - 刷新：展开后 reload，首屏仍为 compact（不记忆上次展开态）；
-- 折叠：48×48 徽章、😊 正确、渐变背景、`collapsed` 键、collapse 事件；
-- 关闭/重开：`display:none`、`closed=1`、close 事件；`show()` 恢复 + open 事件；
+- 显隐：`hide()` 隐藏、`show()` 恢复（Settings 开关路径）；
 - 暗色：`prefers-color-scheme: dark` 下背景亮度 < 60；`data-theme="light"` 能反向覆盖系统暗色；
 - 等待态：`等待第一条回复…`、分数/趋势隐藏、meta 为 `Turn – · 中文 · --`，首个 update 后切换；
 - 全程 `Runtime.exceptionThrown` / `Log.entryAdded(error)` 为 0。
@@ -211,4 +213,4 @@ Headless Chrome CDP 在真实 DSH Web 页面验证：
 
 - `<emotion-monitor>` 正常升级（修复前构造函数写宿主属性导致 `NotSupportedError`，页面只有 HTMLUnknownElement —— 见 #20）。
 - 展开态截图：[real-page-expanded.png](screenshots/real-page-expanded.png)；折叠徽章截图：[real-page-collapsed.png](screenshots/real-page-collapsed.png)。
-- 点击折叠 → `data-view=collapsed`、48×48、😐 徽章；hover 不再展开（#31）；点击徽章恢复展开。
+- 默认 compact（64×64，emoji + 中文）→ 点击展开；`[—]` 收起；hover 不展开（#31/#34）。
