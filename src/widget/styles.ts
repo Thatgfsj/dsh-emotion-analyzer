@@ -65,8 +65,8 @@ export const WIDGET_STYLES = `
 }
 
 :host([data-view='collapsed']) {
-  width: 48px;
-  height: 48px;
+  width: 64px;
+  height: 64px;
 }
 
 :host([data-closed]) {
@@ -394,8 +394,8 @@ export const WIDGET_STYLES = `
   display: none;
   position: relative;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 64px;
+  height: 64px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -408,7 +408,17 @@ export const WIDGET_STYLES = `
 }
 
 :host([data-view='collapsed']) .badge {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.badge.is-dragging {
+  cursor: grabbing;
 }
 
 .badge:hover {
@@ -422,9 +432,23 @@ export const WIDGET_STYLES = `
 .badge-emoji {
   position: relative;
   z-index: 1;
-  font-size: 24px;
+  font-size: 22px;
   line-height: 1;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.28));
+}
+
+.badge-label {
+  position: relative;
+  z-index: 1;
+  max-width: 56px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  white-space: nowrap;
 }
 
 .badge::after {

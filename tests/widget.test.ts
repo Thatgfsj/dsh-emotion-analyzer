@@ -8,6 +8,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  BADGE_SIZE,
+  DRAG_THRESHOLD,
   EMOTION_DIMENSIONS,
   EMOTION_META,
   MAX_TREND,
@@ -24,6 +26,7 @@ import {
   detectLanguage,
   emotionLabel,
   emptyState,
+  exceedsDragThreshold,
   formatLatency,
   formatTurn,
   languageLabel,
@@ -62,6 +65,35 @@ test('emotion metadata: seven dimensions with expected emoji + colours', () => {
     colours.add(meta.color.toLowerCase())
   }
   assert.equal(colours.size, EMOTION_DIMENSIONS.length, 'colours are unique')
+
+  // Issue #30: happy merged into pleasant, label is 愉快.
+  assert.equal(EMOTION_META.pleasant.label, '愉快')
+  assert.equal(EMOTION_META.pleasant.emoji, '😊')
+  assert.equal(EMOTION_META.pleasant.color, '#F5B301')
+  assert.equal('happy' in EMOTION_META, false, 'happy dimension is removed')
+
+  // Issue #32: unwell renamed 反感 and decoupled from sad.
+  assert.equal(EMOTION_META.unwell.label, '反感')
+  assert.equal(EMOTION_META.unwell.emoji, '🤢')
+  assert.equal(EMOTION_META.unwell.color, '#7C9A3B')
+
+  // Question dimension.
+  assert.equal(EMOTION_META.confused.label, '疑问')
+  assert.equal(EMOTION_META.confused.emoji, '🤔')
+  assert.equal(EMOTION_META.confused.color, '#0891B2')
+})
+
+test('compact badge size + drag/click threshold (#34)', () => {
+  assert.equal(BADGE_SIZE, 64, 'compact badge is ~64x64')
+  assert.equal(DRAG_THRESHOLD, 4, 'drag threshold is 4px')
+  assert.equal(exceedsDragThreshold(0, 0), false)
+  assert.equal(exceedsDragThreshold(3, 0), false)
+  assert.equal(exceedsDragThreshold(4, 0), false, 'exactly 4px is still a click')
+  assert.equal(exceedsDragThreshold(0, -4), false)
+  assert.equal(exceedsDragThreshold(4.1, 0), true)
+  assert.equal(exceedsDragThreshold(-5, 0), true)
+  assert.equal(exceedsDragThreshold(3, 3), true, '3+3px is 4.24px')
+  assert.equal(exceedsDragThreshold(0, 0, 0), false)
 })
 
 test('normalizeScore: clamps, ignores junk, treats >1 as percent', () => {
@@ -248,6 +280,8 @@ test('badge gradient/glow clamp intensity and use the emotion colour', () => {
   assert.equal(badgeBackground('pleasant', -5), low, 'intensity is clamped')
   assert.match(badgeGlow('sad', 1), /^rgba\(76, 141, 246, /)
   assert.match(badgeGlow('sad', 0), /^rgba\(76, 141, 246, /)
+  assert.match(badgeBackground('unwell', 1), /rgba\(124, 154, 59, /)
+  assert.match(badgeBackground('confused', 1), /rgba\(8, 145, 178, /)
 })
 
 test('emptyState is a valid, zeroed waiting state', () => {

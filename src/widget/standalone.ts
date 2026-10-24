@@ -200,6 +200,7 @@ function initDemo(): void {
   else demo.setTheme('system')
 
   const view = params.get('view')
+  if (view === 'expanded') demo.expand()
   if (view === 'collapsed') demo.collapse()
   if (view === 'closed') demo.hide()
 }
