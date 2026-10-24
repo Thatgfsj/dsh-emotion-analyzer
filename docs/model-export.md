@@ -121,7 +121,7 @@ python3 scripts/validate.py
 | angry | max(anger, disgust, contempt, frustration) |
 | anxious | max(fear, frustration) |
 | unwell | sadness × 0.5 + disgust × 0.4（加权和，封顶 1.0） |
-| confused（疑问） | max(surprise) — **代理指标** |
+| confused（疑问） | max(surprise, doubt) — **代理指标**；`doubt` 是插件运行时的文本启发式（问号/疑问词/不确定词），不是模型输出，validate.py 只验证模型侧的 surprise |
 | neutral | neutral |
 
 说明：

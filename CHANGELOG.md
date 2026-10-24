@@ -6,6 +6,14 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- 「疑问」维度提取不到：实测模型 surprise 对中文疑问句不响应（0.006~0.075），新增宿主文本启发式 `doubt`（问号/疑问词/不确定词），与 surprise 取 max 后映射到 confused；并补充单测与文档。
+
+### Changed
+
+- 记录里的 `raw` 新增派生键 `doubt`（非模型标签，schema 允许任意 0~1 键）。
+
 ### Added
 
 - 新增统一维度 **confused（疑问）**：以模型 `surprise` 作为代理（当前模型没有 confusion/uncertainty 标签），悬浮框新增「疑问 🤔」分数条与趋势线。
