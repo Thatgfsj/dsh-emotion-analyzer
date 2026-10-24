@@ -9,7 +9,7 @@
  * without ever calling the model again.
  */
 import { z } from 'zod'
-import { aggregate, updateProjection } from './mapping.ts'
+import { getMappingProfile } from './models/profiles.ts'
 import {
   TREND_LIMIT,
   emptyEmotionState,
@@ -45,19 +45,31 @@ export const emotionStateSchema = z
   })
   .strict()
 
-/** Validates one plugin-record payload before folding it. */
-export const emotionTurnRecordSchema = z
+const turnRecordShape = {
+  turn: z.number().int().positive(),
+  raw: scoreSchema,
+  latencyMs: z.number().finite().nonnegative(),
+  language: z.enum(['zh', 'en']),
+  textHash: z.string(),
+  chars: z.number().int().nonnegative(),
+  timestamp: z.number().finite().nonnegative(),
+} as const
+
+/** v0.1 记录：没有 modelId/profileId，fold 时走 legacy-11。 */
+const turnRecordV1Schema = z.object({ version: z.literal(1), ...turnRecordShape }).strict()
+
+/** v0.2 记录：携带模型与映射 profile，历史可跨模型切换稳定重放。 */
+const turnRecordV2Schema = z
   .object({
-    version: z.literal(1),
-    turn: z.number().int().positive(),
-    raw: scoreSchema,
-    latencyMs: z.number().finite().nonnegative(),
-    language: z.enum(['zh', 'en']),
-    textHash: z.string(),
-    chars: z.number().int().nonnegative(),
-    timestamp: z.number().finite().nonnegative(),
+    version: z.literal(2),
+    ...turnRecordShape,
+    modelId: z.string().optional(),
+    profileId: z.string().optional(),
   })
   .strict()
+
+/** Validates one plugin-record payload before folding it (v1 or v2). */
+export const emotionTurnRecordSchema = z.union([turnRecordV1Schema, turnRecordV2Schema])
 
 /** Pick the highest unified dimension; empty/all-zero falls back to neutral. */
 export function dominantOf(scores: ScoreMap): string {
@@ -83,10 +95,13 @@ export function applyEmotionTurn(
   record: EmotionTurnRecord,
 ): EmotionProjectionState {
   if (record.turn <= state.turn) return state
-  const scores = updateProjection(state.scores, record.raw) as ScoreMap
+  // v0.2: 历史记录自带 profile；v0.1 记录 / 未知 profile 回退 legacy-11，
+  // 因此切换模型不会改变旧轮次的投影结果。
+  const profile = getMappingProfile(record.profileId)
+  const scores = profile.updateProjection(state.scores, record.raw) as ScoreMap
   // Per-turn raw aggregate (no STEP_MAX accumulation): the widget's "本回合"
   // bars and emoji read this, so a single joyful reply shows ~0.9 instead of 0.25.
-  const turnScores = aggregate(record.raw) as ScoreMap
+  const turnScores = profile.aggregate(record.raw) as ScoreMap
   const trend = [...state.trend, { turn: record.turn, scores }].slice(-TREND_LIMIT)
   return {
     version: 1,
@@ -128,9 +143,9 @@ export function makeEmotionProjection(
 ): EmotionProjectionDefinition {
   return {
     key: 'emotion',
-    // 3: merged happy into pleasant, refined mapping (#30) and added
-    // per-turn raw aggregates (#30); old cache rows refold from the log.
-    stateVersion: 3,
+    // 4: v0.2 pluggable mapping profiles (#39); records carry profileId so
+    // replay stays correct across model switches. Old cache rows refold from log.
+    stateVersion: 4,
     stateSchema: emotionStateSchema,
     init: emptyEmotionState,
     apply(state, event) {

@@ -4,16 +4,16 @@
 
 [![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.2-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![license: MIT](https://img.shields.io/badge/code-MIT-green)](LICENSE)
-[![model: CC-BY-NC-4.0](https://img.shields.io/badge/model-CC--BY--NC--4.0-orange)](docs/model-export.md)
+[![model: Apache-2.0 default](https://img.shields.io/badge/model-Apache--2.0-blue)](docs/models.md)
 [![files <1000 lines](https://img.shields.io/badge/file-%E2%89%A41000%20lines-brightgreen)](CONTRIBUTING.md)
 
 ![悬浮框展开态](docs/screenshots/widget-expanded.png)
 
 ## 功能
 
-- **本地推理，零第三方模型 API**：XLM-RoBERTa-base 多语言情绪分类（11 标签多标签），ONNX INT8 动态量化，CPU 中位 **6.8ms/条**（Python `validate.py`；Node 侧含分词 8.3ms，p95 ≈ 12ms），不联网、不额外消耗主模型 Token。
-- **多语言**：中文 / 英文原生支持（训练数据 20+ 语言），按 CJK 占比显示语言标识。
-- **硬编码映射层**：11 个原始标签 → 7 个统一维度（**愉快 pleasant** / 悲伤 / 愤怒 / 焦虑 / **反感 unwell = max(disgust, 0.5·fear)** / **疑问 confused = max(surprise, doubt)** / 平静），阈值过滤 + 衰减 + 步长 + 封顶，参数集中在 `src/mapping.ts`。开心已并入「愉快」（#30），disgust 只归反感、不再同时点亮愤怒（#32）。
+- **本地推理，零第三方模型 API**：v0.2 默认 **Horizon-Labs/multilingual-emotions-small**（GoEmotions 28 标签、36 语言、Apache-2.0、官方 INT8，约 256 MiB）；legacy tabularisai（11 标签）保留为回退资产。ONNX 全本地 CPU 推理，不联网、不额外消耗主模型 Token。
+- **多语言**：默认模型覆盖 36 种语言；中文 / 英文按 CJK 占比显示语言标识。
+- **可插拔映射 profile**：模型标签 → 7 个统一维度（**愉快 pleasant** / 悲伤 / 愤怒 / 焦虑 / **反感 unwell** / **疑问 confused** / 平静）。内置 `legacy-11`、`go-emotions-28`、`zh-8` 三套 profile；阈值过滤 + 衰减 + 步长 + 封顶，参数集中在 `src/mapping.ts`。详见 [模型与映射](docs/models.md)。
 - **Session projection**：每轮分数以 `plugin:emotion-analyzer/turn`（ignorable）写入会话日志，由 `emotion` projection 单元纯同步 fold；重启、fork 自动恢复。
 - **悬浮框**：Web Components + Shadow DOM；**默认 64px compact 徽章（emoji + 中文情绪）**，可拖拽；点击展开分数条/sparkline，再点 [—] 折叠；无 [×]/重开 chip，显示/隐藏只由 Settings → 情绪分析器控制（#31、#34）。
 
@@ -38,18 +38,36 @@ agent/turn-stopping { agent, turn, signal }      ← 真实事件名（不是 tu
 ## 安装
 
 ```sh
-# 1) 先导出模型（权重不随仓库分发）
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r scripts/requirements.txt
-python3 scripts/export_model.py        # -> assets/model-int8.onnx + assets/tokenizer.json
-python3 scripts/validate.py            # 40 句自验收，top-1 ≥ 80%
-
-# 2) 装进 profile
 dsh plugin --profile web add /path/to/dsh-emotion-analyzer
 ```
 
-- 首次回复会触发模型加载（约 1.5s），之后单条 6–8ms；模型缺失时插件自动降级（不报错、不影响聊天）。
+装好后默认尝试使用 `horizon-small`；如果模型尚未下载，会自动回退到 `assets/` 里的 legacy 模型（需按 [模型导出与量化](docs/model-export.md) 生成），两者都没有时插件静默降级、不影响聊天。
+
+在设置页（或调用 Host API）下载并选择模型后，下一轮生效：
+
+```sh
+curl -X POST http://127.0.0.1:<port>/api/emotion-analyzer/v1/model/download \
+  -H 'content-type: application/json' -d '{"id":"horizon-small"}'
+curl -X POST http://127.0.0.1:<port>/api/emotion-analyzer/v1/model/select \
+  -H 'content-type: application/json' -d '{"id":"horizon-small"}'
+curl http://127.0.0.1:<port>/api/emotion-analyzer/v1/state
+```
+
+- 首次回复会触发 ONNX 加载（legacy 约 1.5s，Horizon small 约 2–3s），之后单条约 9–20ms；模型缺失时自动降级。
 - `onnxruntime-node` / `tokenizers` 是原生模块，Windows/macOS 的安装脚本批准与二进制下载需在目标机验证（本机只验证了 Linux + Node 24）。
+
+## 模型选择（v0.2）
+
+| 预设 | 许可 | 体积 | 语言 | 标签 | 说明 |
+|---|---|---|---|---|---|
+| `horizon-small`（默认） | Apache-2.0 | 268 MB | 36 | 28 | 官方 INT8，可在线下载 |
+| `horizon-base` | Apache-2.0 | 641 MB | 36 | 28 | 更准但更慢/更大 |
+| `legacy-tabularisai` | CC-BY-NC-4.0 | 279 MB | 23 | 11 | 包内 assets，回退用，不可删除 |
+| `zh-johnson-small` | MIT | 待导出 | zh | 8 | needsExport（暂无官方 ONNX） |
+
+- 设置持久化在 `$DSH_HOME/emotion-analyzer/config.json`；模型下载到同目录 `models/<id>/`，不进仓库。
+- 下载/切换/删除/测试接口：`/api/emotion-analyzer/v1/*`（鉴权由 DSH Connection 负责）。
+- 完整预设、映射 profile、离线安装与风险见 [docs/models.md](docs/models.md)。
 
 ## 可调参数
 
@@ -68,8 +86,9 @@ dsh plugin --profile web add /path/to/dsh-emotion-analyzer
 
 | 项 | 结果 |
 |---|---|
-| 20 中文 + 20 英文 top-1 | **40/40 = 100%**（阈值 80%；#30/#32 映射重构后用 Node 复算同一 40 条 CASES） |
-| CPU INT8 单条推理 | Python `validate.py` 中位 **6.8ms**；Node 侧含分词中位 **8.3ms**、p95 11.6ms（< 200ms） |
+| 20 中文 + 20 英文 top-1（legacy） | **40/40 = 100%**（Node 复算同一 40 条 CASES） |
+| 20 中文 + 20 英文 top-1（Horizon small） | **38/40 = 95%**（≥90% 验收线） |
+| CPU INT8 单条推理 | legacy 中位 **8.6ms**；Horizon small 中位 **19.3ms**（Node 含分词，< 200ms） |
 | tokenizer 与 Python fast 对齐 | 4/4 case 逐 token 一致 |
 | 5 轮 sad 累积 / 10 轮 neutral 回落 | 单测通过（≤ CAP、< 0.2） |
 | 重启 projection 恢复 | 日志重放回归测试通过 |
@@ -83,7 +102,8 @@ dsh plugin --profile web add /path/to/dsh-emotion-analyzer
 - [DSH 宿主 API 校准](docs/calibration.md)
 - [客户端集成（slot / portal / 设置开关）](docs/client-integration.md)
 - [悬浮框（交互、主题、localStorage）](docs/widget.md)
-- [模型导出与量化](docs/model-export.md)
+- [模型注册、下载与映射](docs/models.md)
+- [模型导出与量化（legacy）](docs/model-export.md)
 - [端到端验收](docs/e2e.md)
 - [贡献规则](CONTRIBUTING.md) · [AGENTS](AGENTS.md)
 
@@ -96,4 +116,4 @@ dsh plugin --profile web add /path/to/dsh-emotion-analyzer
 ## License
 
 - **代码**：MIT（见 [LICENSE](LICENSE)）。
-- **模型权重**：上游 [tabularisai/multilingual-emotion-classification](https://huggingface.co/tabularisai/multilingual-emotion-classification) 为 **CC-BY-NC-4.0（非商业）**，本仓库不随源码分发权重，只提供下载/导出/量化脚本。商用前请自行评估或替换模型。
+- **模型权重**：默认模型 Horizon-Labs/multilingual-emotions-small 为 **Apache-2.0**；回退用的 legacy [tabularisai/multilingual-emotion-classification](https://huggingface.co/tabularisai/multilingual-emotion-classification) 为 **CC-BY-NC-4.0（非商业）**。本仓库不随源码分发权重，只提供下载/导出/量化脚本。商用请使用默认模型或自行替换。

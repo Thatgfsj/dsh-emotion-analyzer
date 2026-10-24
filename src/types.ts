@@ -29,11 +29,15 @@ export type DetectedLanguage = 'zh' | 'en'
 /** Payload appended to the session log as `plugin:emotion-analyzer/turn`. */
 export interface EmotionTurnRecord {
   /** Payload version; bump together with the projection stateVersion. */
-  version: 1
+  version: 1 | 2
   /** Agent turn number from the `agent/turn-stopping` payload. */
   turn: number
-  /** Raw model labels (11) after element-wise sigmoid, all in 0..1. */
+  /** Raw model labels (11 legacy / 28 GoEmotions / 8 zh) after sigmoid, all in 0..1. */
   raw: ScoreMap
+  /** v0.2: model id that produced this record (absent on v1 records). */
+  modelId?: string
+  /** v0.2: mapping profile id used to fold this record (absent → legacy-11). */
+  profileId?: string
   /** Wall-clock inference time for this turn, ms. */
   latencyMs: number
   /** Detected language of the scored reply. */
