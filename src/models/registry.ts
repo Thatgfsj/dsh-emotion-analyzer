@@ -56,6 +56,8 @@ export interface ModelPreset {
   readonly mappingProfile: MappingProfileId
   /** 是否为默认模型。 */
   readonly default?: boolean
+  /** 是否为推荐模型（UI 显示「推荐」）。 */
+  readonly recommended?: boolean
   /** 没有现成 ONNX，需要用脚本导出（不阻塞下载以外的默认流程）。 */
   readonly needsExport?: boolean
   readonly urls: ModelPresetUrls
@@ -184,7 +186,7 @@ const baseDownload = downloadFiles({
 export const MODEL_PRESETS: readonly ModelPreset[] = [
   {
     id: 'horizon-small',
-    name: 'Horizon 多语言情绪 · small',
+    name: 'Horizon Small',
     repo: HORIZON_SMALL_REPO,
     license: 'Apache-2.0',
     sizeBytes: 268_449_278,
@@ -197,7 +199,8 @@ export const MODEL_PRESETS: readonly ModelPreset[] = [
   },
   {
     id: 'horizon-base',
-    name: 'Horizon 多语言情绪 · base',
+    name: 'Horizon Base',
+    recommended: true,
     repo: HORIZON_BASE_REPO,
     license: 'Apache-2.0',
     sizeBytes: 641_205_891,
@@ -209,7 +212,7 @@ export const MODEL_PRESETS: readonly ModelPreset[] = [
   },
   {
     id: 'legacy-tabularisai',
-    name: 'Tabularis 多语言情绪（legacy）',
+    name: 'tabularisai（回退默认）',
     repo: 'tabularisai/multilingual-emotion-classification',
     license: 'CC-BY-NC-4.0',
     sizeBytes: 278_963_213,
@@ -228,7 +231,7 @@ export const MODEL_PRESETS: readonly ModelPreset[] = [
   },
   {
     id: 'zh-johnson-small',
-    name: '中文情绪 · Johnson8187 small',
+    name: 'Chinese Emotion（中文）',
     repo: ZH_REPO,
     license: 'MIT',
     sizeBytes: 0,

@@ -58,6 +58,8 @@ const STATE: ModelStatePayload = {
       progress: { receivedBytes: 0, totalBytes: 0, percent: 0 },
       error: null,
       needsExport: false,
+      default: true,
+      recommended: false,
     },
   ],
 }
