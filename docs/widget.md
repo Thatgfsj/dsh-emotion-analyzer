@@ -121,7 +121,7 @@ element.update({
 | `dsh-emotion-monitor:position` | `{"x":852,"y":20}` | 拖拽结束 / 视口 clamp |
 | `dsh-emotion-monitor:collapsed` | `"1"` / `"0"` | 折叠 / 展开 |
 | `dsh-emotion-monitor:closed` | `"1"`（恢复时删除） | 关闭 / `show()` |
-| `dsh-emotion-monitor:trend` | `[{"happy":0.84,...}, ...]` | 每次 `update`（最多 30 轮，分数保留 3 位小数） |
+| `dsh-emotion-monitor:trend` | `[{"pleasant":0.84,...}, ...]` | 每次 `update`（最多 30 轮，分数保留 3 位小数） |
 
 读取/写入均包在 try/catch 中：隐私模式或禁用存储时 widget 仍可工作，只是不记忆。关闭后重新打开页面会保持隐藏（`closed=1`），符合「设置里重开」的约定。
 

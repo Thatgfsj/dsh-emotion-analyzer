@@ -39,7 +39,7 @@ function initial(overrides: Partial<EmotionScores> = {}): EmotionScores {
 
 /**
  * updateProjection 的公共签名固定为 Record<string, number>（宿主集成契约）；
- * 测试里收窄回完整维度类型，方便按 .sad / .happy 断言。
+ * 测试里收窄回完整维度类型，方便按 .sad / .pleasant 断言。
  */
 function project(current: Record<string, number>, raw: Record<string, number>): EmotionScores {
   return updateProjection(current, raw) as EmotionScores
@@ -100,6 +100,21 @@ test('EMOTION_MAP：unwell = max(disgust, 0.5*fear)，与 sad 解耦（issue #32
   // 纯悲伤不再点亮“反感”
   close(aggregate({ sadness: 1 }).unwell, 0)
   close(aggregate({ sadness: 0.95, disgust: 0 }).unwell, 0)
+})
+
+test('EMOTION_MAP：disgust 只归 unwell，不再点亮 angry（issue #32）', () => {
+  // “恶心”句实测 disgust≈0.99：旧映射会同时高亮 angry + unwell 两条重复。
+  const disgustOnly = aggregate({ disgust: 0.99 })
+  close(disgustOnly.unwell, 0.99)
+  close(disgustOnly.angry, 0)
+  // angry 仍由 anger / contempt / frustration 驱动
+  close(aggregate({ anger: 0.8 }).angry, 0.8)
+  close(aggregate({ contempt: 0.7 }).angry, 0.7)
+  close(aggregate({ frustration: 0.6 }).angry, 0.6)
+  // 单轮投影：disgust 输入只推高 unwell
+  const next = project(initial({ angry: 0.6 }), { disgust: 0.9 })
+  close(next.unwell, STEP_MAX)
+  close(next.angry, 0.6 * DECAY)
 })
 
 test('噪声过滤：所有维度都低于 THRESHOLD 时跳过整轮，不积累也不衰减', () => {

@@ -22,9 +22,9 @@ function record(turn: number, raw: Record<string, number>): EmotionTurnRecord {
 }
 
 test('dominantOf picks the highest dimension and falls back to neutral', () => {
-  assert.equal(dominantOf({ happy: 0.2, sad: 0.7 }), 'sad')
+  assert.equal(dominantOf({ pleasant: 0.2, sad: 0.7 }), 'sad')
   assert.equal(dominantOf({}), 'neutral')
-  assert.equal(dominantOf({ happy: 0, sad: 0 }), 'neutral')
+  assert.equal(dominantOf({ pleasant: 0, sad: 0 }), 'neutral')
 })
 
 test('sad accumulates over five turns and never exceeds the cap', () => {

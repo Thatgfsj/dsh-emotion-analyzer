@@ -19,9 +19,9 @@ What this script does (Issue #2):
 Unified mapping (mirrors the TS plugin, see docs/model-export.md):
 
     pleasant<- max(joy, love, gratitude)
-    sad     <- max(sadness, frustration)
-    angry   <- max(anger, disgust, contempt, frustration)
-    anxious <- max(fear, frustration)
+    sad     <- max(sadness)
+    angry   <- max(anger, contempt, frustration)  (disgust only feeds unwell)
+    anxious <- max(fear)
     unwell  <- max(disgust, fear * 0.5)          (decoupled from sad, #32)
     confused<- surprise                        (proxy: the model has no
                                                 confusion/uncertainty label)
@@ -130,9 +130,10 @@ def unified_scores(probs) -> dict[str, float]:
     p = {label: float(probs[LABEL_INDEX[label]]) for label in LABELS}
     return {
         "pleasant": max(p["joy"], p["love"], p["gratitude"]),
-        "sad": max(p["sadness"], p["frustration"]),
-        "angry": max(p["anger"], p["disgust"], p["contempt"], p["frustration"]),
-        "anxious": max(p["fear"], p["frustration"]),
+        "sad": p["sadness"],
+        # disgust only feeds unwell (#32); otherwise "disgust" lights two bars.
+        "angry": max(p["anger"], p["contempt"], p["frustration"]),
+        "anxious": p["fear"],
         "unwell": max(p["disgust"], p["fear"] * 0.5),
         "confused": p["surprise"],
         "neutral": p["neutral"],
@@ -350,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         "mapping": {
             "pleasant": "max(joy, love, gratitude)  [happy merged into pleasant]",
             "sad": "max(sadness)",
-            "angry": "max(anger, disgust, contempt, frustration)",
+            "angry": "max(anger, contempt, frustration)  [disgust only feeds unwell]",
             "anxious": "max(fear)",
             "unwell": "max(disgust, fear*0.5)  [decoupled from sad, issue #32]",
             "confused": "max(surprise, doubt-heuristic)  [runtime adds doubt; validate.py checks model-side surprise]",
