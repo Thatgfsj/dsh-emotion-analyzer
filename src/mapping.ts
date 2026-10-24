@@ -40,8 +40,8 @@ export const CAP = 1.0
 
 /**
  * 真实模型输出的 11 个原始标签（顺序与模型 id2label 一致）。
- * `surprise` 暂不参与映射，保留在列表里是为了让调用方 / 测试明确知道
- * 它是“已知但未映射”，而不是拼写错误。
+ * `surprise` 用作“疑问/惊讶”的代理：模型没有 confusion/uncertainty 标签，
+ * 最接近的就是 surprise（见 issue #25，文档里明确标注这是代理指标）。
  */
 export const RAW_EMOTION_LABELS = [
   'anger',
@@ -60,7 +60,7 @@ export const RAW_EMOTION_LABELS = [
 /** 模型原始标签。 */
 export type RawEmotionLabel = (typeof RAW_EMOTION_LABELS)[number]
 
-/** 写入 Session projection 的 7 个统一维度。 */
+/** 写入 Session projection 的 8 个统一维度（含 surprise 代理的“疑问”）。 */
 export const EMOTION_DIMENSIONS = [
   'happy',
   'pleasant',
@@ -68,6 +68,7 @@ export const EMOTION_DIMENSIONS = [
   'angry',
   'anxious',
   'unwell',
+  'confused',
   'neutral',
 ] as const
 
@@ -95,7 +96,8 @@ export interface EmotionRule {
  *   里任一标签高就代表该情绪强，取最大值不会被多个同义标签重复放大。
  * - unwell 用 `wsum`：sadness * 0.5 + disgust * 0.4，表达“低落 + 厌恶”
  *   的混合不适感，权重差异来自人工校准。
- * - surprise 暂不映射（方向不确定，等后续 issue）。
+ * - confused（显示名“疑问”）用 surprise 代理：当前模型没有 confusion /
+ *   uncertainty 标签，surprise 是语义上最接近的可用信号（issue #25）。
  */
 export const EMOTION_MAP: Readonly<Record<EmotionDimension, EmotionRule>> = {
   happy: { kind: 'max', terms: [['joy', 1], ['gratitude', 1]] },
@@ -104,10 +106,11 @@ export const EMOTION_MAP: Readonly<Record<EmotionDimension, EmotionRule>> = {
   angry: { kind: 'max', terms: [['anger', 1], ['disgust', 1], ['contempt', 1], ['frustration', 1]] },
   anxious: { kind: 'max', terms: [['fear', 1], ['frustration', 1]] },
   unwell: { kind: 'wsum', terms: [['sadness', 0.5], ['disgust', 0.4]] },
+  confused: { kind: 'max', terms: [['surprise', 1]] },
   neutral: { kind: 'max', terms: [['neutral', 1]] },
 }
 
-/** 被某个统一维度实际消费的原始标签（即除 `surprise` 之外的 10 个）。 */
+/** 被某个统一维度实际消费的原始标签（当前 11 个全部被消费）。 */
 const MAPPED_LABELS: readonly RawEmotionLabel[] = [
   ...new Set(EMOTION_DIMENSIONS.flatMap((dimension) => EMOTION_MAP[dimension].terms.map(([label]) => label))),
 ]
@@ -140,7 +143,7 @@ function hasMappedInput(scores: RawScores | null | undefined): boolean {
   })
 }
 
-/** 空投影：7 个维度全为 0。 */
+/** 空投影：8 个维度全为 0。 */
 export function emptyProjection(): EmotionScores {
   return {
     happy: 0,
@@ -149,6 +152,7 @@ export function emptyProjection(): EmotionScores {
     angry: 0,
     anxious: 0,
     unwell: 0,
+    confused: 0,
     neutral: 0,
   }
 }

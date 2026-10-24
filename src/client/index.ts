@@ -12,8 +12,10 @@
  */
 import { EmotionMonitorElement } from '../widget/emotion-monitor.ts'
 import {
+  RESET_EVENT,
   VISIBILITY_EVENT,
   createSettingsRow,
+  createSettingsSection,
   readVisible,
   writeVisible,
 } from './settings-row.ts'
@@ -38,6 +40,7 @@ interface ClientContext {
 const OVERLAY_SLOT = 'shell.overlay'
 const BRIDGE_SLOT = 'conversation.session.header.utilities'
 const SETTINGS_SLOT = 'settings.general.item'
+const SETTINGS_SECTION_SLOT = 'settings.section'
 const WIDGET_TAG = 'emotion-monitor'
 
 /**
@@ -86,6 +89,15 @@ export default function createPlugin(require: RequireFn): {
       return () => window.removeEventListener(VISIBILITY_EVENT, onVisibility)
     }, [])
 
+    React.useEffect(() => {
+      const onReset = (): void => {
+        const element = elementRef.current
+        if (element !== null && typeof element.resetPosition === 'function') element.resetPosition()
+      }
+      window.addEventListener(RESET_EVENT, onReset)
+      return () => window.removeEventListener(RESET_EVENT, onReset)
+    }, [])
+
     React.useEffect(() => subscribeEmotion((next) => setSnapshot(next)), [])
 
     const data: WidgetData | null = snapshot.data
@@ -115,6 +127,14 @@ export default function createPlugin(require: RequireFn): {
         element.removeEventListener('emotion-monitor-open', onOpen)
       }
     }, [visible])
+
+    React.useEffect(() => {
+      if (!visible || closed) return
+      const element = elementRef.current
+      if (element !== null && typeof element.isClosed === 'function' && element.isClosed() && typeof element.show === 'function') {
+        element.show()
+      }
+    }, [visible, closed])
 
     const reopen = (): void => {
       const element = elementRef.current
@@ -147,22 +167,25 @@ export default function createPlugin(require: RequireFn): {
             style: {
               position: 'fixed',
               right: '12px',
-              bottom: '12px',
-              width: '36px',
-              height: '36px',
+              top: '12px',
+              height: '34px',
+              padding: '0 12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
               borderRadius: '999px',
               border: '1px solid rgba(255,255,255,.25)',
-              background: 'rgba(30,30,36,.85)',
+              background: 'rgba(30,30,36,.88)',
               color: '#fff',
-              fontSize: '17px',
+              fontSize: '13px',
               lineHeight: '1',
               cursor: 'pointer',
               pointerEvents: 'auto',
-              zIndex: 2147483000,
+              zIndex: 2147483646,
               boxShadow: '0 6px 20px rgba(0,0,0,.28)',
             },
           },
-          '💗',
+          '💗 情绪',
         ),
       )
     }
@@ -190,16 +213,26 @@ export default function createPlugin(require: RequireFn): {
     apply(ctx: ClientContext) {
       if (ctx.slots === undefined) return
       const slots = ctx.slots
-      const install = (name: string, id: string, order: number, component: unknown): (() => void) => {
-        const dispose = slots.inject(name, () => slots.register({ name, id, order }, component))
+      const install = (
+        name: string,
+        id: string,
+        order: number,
+        component: unknown,
+        extra: Record<string, unknown> = {},
+      ): (() => void) => {
+        const dispose = slots.inject(name, () => slots.register({ name, id, order, ...extra }, component))
         return typeof dispose === 'function' ? (dispose as () => void) : () => {}
       }
       const SettingsRow = createSettingsRow(React)
+      const SettingsSection = createSettingsSection(React)
       const installAll = (): (() => void) => {
         const disposers = [
           install(OVERLAY_SLOT, 'emotion-analyzer', 20, OverlayEntry),
           install(BRIDGE_SLOT, 'emotion-analyzer-bridge', 50, Bridge),
           install(SETTINGS_SLOT, 'emotion-analyzer-settings', 60, SettingsRow),
+          install(SETTINGS_SECTION_SLOT, 'emotion-analyzer-section', 70, SettingsSection, {
+            label: '情绪分析器 / Emotion Monitor',
+          }),
         ]
         return () => {
           for (const dispose of disposers.reverse()) dispose()

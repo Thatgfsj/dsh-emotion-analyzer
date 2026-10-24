@@ -35,7 +35,7 @@ shell.overlay 浮层 → React portal → <emotion-monitor>（Shadow DOM）
 
 ## 情绪映射与累积（`src/mapping.ts`）
 
-模型的 11 个原始标签（逐标签 sigmoid，互不排斥）聚合成 7 个统一维度：
+模型的 11 个原始标签（逐标签 sigmoid，互不排斥）聚合成 8 个统一维度：
 
 | 统一维度 | 聚合 | 原始标签 |
 |---|---|---|
@@ -45,15 +45,16 @@ shell.overlay 浮层 → React portal → <emotion-monitor>（Shadow DOM）
 | `angry` | max | anger, disgust, contempt, frustration |
 | `anxious` | max | fear, frustration |
 | `unwell` | 加权和 | sadness×0.5 + disgust×0.4 |
+| `confused`（疑问） | max | surprise（**代理**：模型无 confusion 标签） |
 | `neutral` | max | neutral |
 
-`surprise` 已知但**暂不映射**（方向不确定，等后续 issue）。`max` 让同义标签取最强的一个，避免重复放大；`wsum` 表达混合不适感。
+`max` 让同义标签取最强的一个，避免重复放大；`wsum` 表达混合不适感。`confused` 只是 surprise 的代理，UI 显示为“疑问”，换模型时可直接替换映射。
 
 `updateProjection(current, rawScores)` 是纯函数，按顺序执行：
 
-1. **聚合**：11 个原始标签 → 7 个维度（越界 / 非有限值按 0 处理）。
+1. **聚合**：11 个原始标签 → 8 个维度（越界 / 非有限值按 0 处理）。
 2. **门控**：
-   - 本轮没有**被映射的**输入（空对象、只有 `surprise`、全非法值）→ 视为“无输入”，所有维度纯衰减；
+   - 本轮没有**被映射的**输入（空对象、全非法值）→ 视为“无输入”，所有维度纯衰减；
    - 有输入但所有维度聚合值都低于 `THRESHOLD` → 判为噪声，整轮跳过，状态不变。
 3. **命中**（聚合值 ≥ `THRESHOLD`）：`next = min(CAP, old × DECAY + min(raw, STEP_MAX))`。
    可调常量在 `src/mapping.ts` 顶部：`THRESHOLD=0.3`、`DECAY=0.85`、

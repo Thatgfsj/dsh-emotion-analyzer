@@ -304,6 +304,13 @@ export class EmotionMonitorElement extends HTMLElement {
     return this.closed
   }
 
+  /** Forget the saved position and move back to the default corner. */
+  resetPosition(): void {
+    storageRemove(STORAGE_KEYS.position)
+    this.placeAt(this.defaultPosition(), false)
+    requestAnimationFrame(() => this.clampCurrentPosition(false))
+  }
+
   /** Collapse to the 48px badge (programmatic; does not emit collapse). */
   collapse(): void {
     this.setCollapsed(true, false)

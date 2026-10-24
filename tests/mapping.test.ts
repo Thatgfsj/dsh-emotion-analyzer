@@ -61,7 +61,7 @@ test('常量 pinned 在约定值上', () => {
   assert.equal(CAP, 1.0)
 })
 
-test('标签与维度集合是真实的 11 标签 / 7 维度', () => {
+test('标签与维度集合是真实的 11 标签 / 8 维度', () => {
   assert.deepEqual(RAW_EMOTION_LABELS, [
     'anger',
     'contempt',
@@ -75,12 +75,11 @@ test('标签与维度集合是真实的 11 标签 / 7 维度', () => {
     'sadness',
     'surprise',
   ])
-  assert.deepEqual(EMOTION_DIMENSIONS, ['happy', 'pleasant', 'sad', 'angry', 'anxious', 'unwell', 'neutral'])
-  // surprise 已知但不映射
+  assert.deepEqual(EMOTION_DIMENSIONS, ['happy', 'pleasant', 'sad', 'angry', 'anxious', 'unwell', 'confused', 'neutral'])
+  // 11 个原始标签全部被消费；surprise 作为“疑问”的代理映射（issue #25）
   const mapped = new Set(EMOTION_DIMENSIONS.flatMap((dimension) => EMOTION_MAP[dimension].terms.map(([label]) => label)))
-  assert.equal(mapped.has('surprise'), false)
   for (const label of RAW_EMOTION_LABELS) {
-    if (label !== 'surprise') assert.equal(mapped.has(label), true, `${label} 应该被映射`)
+    assert.equal(mapped.has(label), true, `${label} 应该被映射`)
   }
 })
 
@@ -177,14 +176,15 @@ test('无输入时衰减到 0', () => {
   }
 })
 
-test('未知标签 / surprise / 非法值被安全忽略', () => {
+test('未知标签 / surprise 代理 / 非法值处理', () => {
   const current = deepFreeze(initial({ sad: 0.5 }))
   // 未知标签：不参与聚合；其余映射标签都低于阈值 → 噪声跳过
   const unknown = { joy: 0.1, bogus: 0.99 } as unknown as Record<string, number>
   assert.deepEqual(project(current, unknown), current)
-  // 只有 surprise：已知但未映射 → 视为无输入，走衰减
+  // 只有 surprise：映射到 confused（疑问代理），sad 走衰减
   const surpriseOnly = project(current, { surprise: 0.99 })
   close(surpriseOnly.sad, 0.5 * DECAY)
+  close(surpriseOnly.confused, STEP_MAX)
   // NaN / Infinity 视为非法值
   assert.deepEqual(project(current, { joy: Number.NaN } as Record<string, number>), initial({ sad: 0.5 * DECAY }))
   assert.deepEqual(project(current, { joy: Number.POSITIVE_INFINITY } as Record<string, number>), initial({ sad: 0.5 * DECAY }))
