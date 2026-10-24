@@ -45,10 +45,11 @@ shell.overlay 浮层 → React portal → <emotion-monitor>（Shadow DOM）
 | `angry` | max | anger, disgust, contempt, frustration |
 | `anxious` | max | fear, frustration |
 | `unwell` | 加权和 | sadness×0.5 + disgust×0.4 |
-| `confused`（疑问） | max | surprise（**代理**：模型无 confusion 标签） |
+| `confused`（疑问） | max | surprise（模型）+ doubt（宿主文本启发式：问号/疑问词/不确定词） |
+
 | `neutral` | max | neutral |
 
-`max` 让同义标签取最强的一个，避免重复放大；`wsum` 表达混合不适感。`confused` 只是 surprise 的代理，UI 显示为“疑问”，换模型时可直接替换映射。
+`max` 让同义标签取最强的一个，避免重复放大；`wsum` 表达混合不适感。`confused` 由两部分组成：模型 `surprise`（只覆盖真正的惊讶）+ 宿主启发式 `doubt`（覆盖中文疑问/不确定句，见 [issue #28](https://github.com/Thatgfsj/dsh-emotion-analyzer/issues/28)）；二者都是代理，不代表模型具备真实困惑分类能力。
 
 `updateProjection(current, rawScores)` 是纯函数，按顺序执行：
 

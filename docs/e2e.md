@@ -55,3 +55,20 @@ CDP 断言（真实页面）：
 | 关闭 → 重开 | 点击 [×] 后 widget 隐藏、出现「💗 情绪」按钮、localStorage visible=0；点击后 widget 恢复、visible=1 |
 | slot 注册 | 真实页面 console 探针确认 `shell.overlay`、`settings.section`、`settings.general.item`、`conversation.session.header.utilities` 四个 inject 回调全部触发 |
 | 控制台错误 | 0 |
+
+## 0.1.2 「疑问」提取修复验证（真实模型）
+
+模型 surprise 对中文疑问句几乎不响应；新增宿主 `doubt` 启发式后，用真实 INT8 模型 + mapping 实测：
+
+| 文本 | doubt | surprise | confused（单轮，STEP_MAX 封顶） |
+|---|---|---|---|
+| 这是为什么？ | 0.50 | 0.036 | **0.250** |
+| 我不太确定接下来该怎么办。 | 0.50 | 0.006 | **0.250** |
+| 你说的是什么意思？ | 0.50 | 0.019 | **0.250** |
+| 真的吗？我没想到会这样！ | 0.50 | 0.985 | **0.250** |
+| Why did this happen? | 0.50 | 0.847 | **0.250** |
+| 今天天气不错。 | 0.00 | 0.003 | 0.000 |
+| The meeting is at 3pm. | 0.00 | 0.002 | 0.000 |
+| 请帮我改一下这个函数。 | 0.00 | 0.002 | 0.000 |
+
+注：单轮受 `STEP_MAX=0.25` 限制，连续疑问/不确定回复会累积上升；陈述句不误报。

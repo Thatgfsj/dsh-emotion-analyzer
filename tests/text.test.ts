@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  detectDoubt,
   detectLanguage,
   extractLastAssistantText,
   hashText,
@@ -48,4 +49,21 @@ test('truncateForScoring respects the character budget', () => {
   const long = 'x'.repeat(5000)
   assert.equal(truncateForScoring(long).length, 4000)
   assert.equal(truncateForScoring('short'), 'short')
+})
+
+test('detectDoubt: question and uncertainty sentences produce a signal', () => {
+  assert.ok(detectDoubt('这是为什么？') >= 0.5)
+  assert.ok(detectDoubt('你吃了吗') >= 0.4)
+  assert.ok(detectDoubt('我不太确定接下来该怎么办。') >= 0.5)
+  assert.ok(detectDoubt('我有点困惑，能再解释一下吗？') >= 0.5)
+  assert.ok(detectDoubt('I am not sure how to proceed.') >= 0.5)
+  assert.ok(detectDoubt('Why did this happen?') >= 0.5)
+  assert.ok(detectDoubt('为什么？怎么办？') >= 0.6)
+})
+
+test('detectDoubt: plain statements and technical prose do not fire', () => {
+  assert.equal(detectDoubt('The meeting is at 3pm.'), 0)
+  assert.equal(detectDoubt('今天天气不错。'), 0)
+  assert.equal(detectDoubt('这是一个技术说明，里面会解释如何以及为什么。'), 0)
+  assert.equal(detectDoubt(''), 0)
 })

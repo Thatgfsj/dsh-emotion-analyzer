@@ -190,6 +190,14 @@ test('未知标签 / surprise 代理 / 非法值处理', () => {
   assert.deepEqual(project(current, { joy: Number.POSITIVE_INFINITY } as Record<string, number>), initial({ sad: 0.5 * DECAY }))
 })
 
+test('doubt 派生信号映射到 confused（疑问）', () => {
+  const current = deepFreeze(initial({}))
+  const next = project(current, { doubt: 0.9 })
+  close(next.confused, STEP_MAX)
+  // 其余维度没有输入，走衰减（从 0 开始仍是 0）
+  close(next.sad, 0)
+})
+
 test('边界值：0 / 1 / 超范围原始分数都会被钳制', () => {
   // 全 0：无信号（0 是合法输入但低于阈值）→ 噪声跳过
   const current = deepFreeze(initial({ happy: 0.4 }))

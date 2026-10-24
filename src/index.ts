@@ -12,7 +12,7 @@
 import { appendPluginRecord, pluginRecordOf } from '@deepseek-ai/dsh-session'
 import { EmotionScorer } from './inference.ts'
 import { EMOTION_RECORD_TYPE, registerEmotionProjection } from './projection.ts'
-import { detectLanguage, extractLastAssistantText, hashText, truncateForScoring } from './text.ts'
+import { detectDoubt, detectLanguage, extractLastAssistantText, hashText, truncateForScoring } from './text.ts'
 import type { EmotionTurnRecord } from './types.ts'
 
 /** Plugin name (also the profile row id). */
@@ -136,16 +136,20 @@ export function apply(ctx: HostContext): void {
     if (text.length === 0) return
 
     const startedAt = Date.now()
-    const raw = await withTimeout<Record<string, number>>(
+    const scored = await withTimeout<Record<string, number>>(
       runtime.scorer.score(truncateForScoring(text)),
       SCORE_TIMEOUT_MS,
       'emotion scoring',
     )
     const latencyMs = Date.now() - startedAt
-    if (raw === undefined || raw === null || Object.keys(raw).length === 0) {
+    if (scored === undefined || scored === null || Object.keys(scored).length === 0) {
       log.warn?.('[emotion-analyzer] empty score; turn left untouched')
       return
     }
+    // The model's surprise head does not fire on Chinese questions; add the
+    // host-side doubt heuristic as a derived signal (see issue #28).
+    const doubt = detectDoubt(text)
+    const raw: Record<string, number> = doubt > 0 ? { ...scored, doubt } : scored
 
     const record: EmotionTurnRecord = {
       version: 1,
