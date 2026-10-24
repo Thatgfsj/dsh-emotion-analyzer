@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-10-25
+
+### Fixed
+
+- 插件管理页（Bundle 详情）缺少设置入口：注册 `plugins.bundle.config`（key=包名），内嵌完整的显隐/重置与模型管理区；无需再跳到 Settings（#50）。
+
 ## [0.2.0] - 2026-10-25
 
 ### Added
