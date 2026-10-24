@@ -40,6 +40,9 @@ const OVERLAY_SLOT = 'shell.overlay'
 const BRIDGE_SLOT = 'conversation.session.header.utilities'
 const SETTINGS_SLOT = 'settings.general.item'
 const SETTINGS_SECTION_SLOT = 'settings.section'
+/** Plugin Manager bundle page; keyed by the package name. */
+const PLUGIN_BUNDLE_CONFIG_SLOT = 'plugins.bundle.config'
+const PLUGIN_PACKAGE_NAME = 'dsh-emotion-analyzer'
 const WIDGET_TAG = 'emotion-monitor'
 
 /**
@@ -169,6 +172,10 @@ export default function createPlugin(require: RequireFn): {
           install(SETTINGS_SLOT, 'emotion-analyzer-settings', 60, SettingsRow),
           install(SETTINGS_SECTION_SLOT, 'emotion-analyzer-section', 70, SettingsSection, {
             label: '情绪分析器 / Emotion Monitor',
+          }),
+          // Inline configuration on the plugin's own page in Plugin Manager.
+          install(PLUGIN_BUNDLE_CONFIG_SLOT, 'emotion-analyzer-bundle-config', 0, SettingsSection, {
+            key: PLUGIN_PACKAGE_NAME,
           }),
         ]
         return () => {
