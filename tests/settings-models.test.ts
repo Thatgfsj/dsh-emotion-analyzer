@@ -95,7 +95,7 @@ test('presetAction: download / cancel / delete / export / disabled', () => {
     download: { id: 'horizon-base', status: 'downloading', percent: 30 },
   })
   assert.deepEqual(presetAction(notInstalled, downloadingState, false), { kind: 'cancel', label: '取消下载', disabled: false })
-  assert.deepEqual(presetAction(installed, downloadingState, false), { kind: 'none', label: '处理中…', disabled: true })
+  assert.deepEqual(presetAction(installed, downloadingState, false), { kind: 'delete', label: '删除', disabled: true })
 
   const exportPreset = preset({ id: 'zh', installed: false, downloadable: false, needsExport: true })
   assert.deepEqual(presetAction(exportPreset, state(), false), { kind: 'export', label: '需本地导出', disabled: true })
@@ -104,7 +104,7 @@ test('presetAction: download / cancel / delete / export / disabled', () => {
     label: '不可在线下载',
     disabled: true,
   })
-  assert.deepEqual(presetAction(notInstalled, state(), true), { kind: 'none', label: '处理中…', disabled: true })
+  assert.deepEqual(presetAction(notInstalled, state(), true), { kind: 'none', label: '等待下载完成', disabled: true })
 })
 
 test('canSelectPreset: only installed + not active + idle', () => {
