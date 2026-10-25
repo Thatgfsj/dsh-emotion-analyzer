@@ -7,6 +7,10 @@
 [![model: Apache-2.0 default](https://img.shields.io/badge/model-Apache--2.0-blue)](docs/models.md)
 [![files <1000 lines](https://img.shields.io/badge/file-%E2%89%A41000%20lines-brightgreen)](CONTRIBUTING.md)
 
+[![宣传片：给你的 AI 聊天窗口装个情绪手环](docs/media/promo-poster.jpg)](https://github.com/Thatgfsj/dsh-emotion-analyzer/releases/download/promo-2026-10/promo45.mp4)
+
+> ▶ **45 秒横版宣传片**（竖版 30 秒 × 3 个开场钩子见 [Release](https://github.com/Thatgfsj/dsh-emotion-analyzer/releases/tag/promo-2026-10)）· 数据口径与发布建议见 [docs/promo.md](docs/promo.md)
+
 ![悬浮框展开态](docs/screenshots/widget-expanded.png)
 
 ## 功能
