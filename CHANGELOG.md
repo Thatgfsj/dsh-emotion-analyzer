@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] - 2026-10-25
+
+### Fixed
+
+- 模型页状态卡住（#57）：已下载的 Horizon Small/Base 显示成未安装、legacy/中文一直「处理中」。原因：一个下载进行中时所有卡片被统一成「处理中…」，且下载 202 响应可能早于第一条进度、轮询未启动。现在只有正在下载的卡片显示取消/进度，其他卡片显示各自动作（禁用而非「处理中」）；下载后主动补一次 state 刷新；新增「刷新状态」按钮与「实时/演示数据」标识。
+
 ## [0.2.2] - 2026-10-25
 
 ### Fixed

@@ -90,10 +90,13 @@ export function presetAction(
   const download = state ? state.download : null
   const isThisDownload = Boolean(download && download.id === preset.id && isActiveDownloadStatus(download.status))
   if (isThisDownload) return { kind: 'cancel', label: '取消下载', disabled: busy }
-  if (busy || downloadIsActive(state)) return { kind: 'none', label: '处理中…', disabled: true }
-  if (preset.needsExport && !preset.installed) return { kind: 'export', label: '需本地导出', disabled: true }
-  if (preset.installed) return { kind: 'delete', label: '删除', disabled: false }
+  const blocked = busy || downloadIsActive(state)
+  // Other cards stay recognizable while one download runs: show their own
+  // action, disabled, instead of a global "处理中…" (issue #57).
+  if (preset.installed) return { kind: 'delete', label: '删除', disabled: blocked }
+  if (preset.needsExport) return { kind: 'export', label: '需本地导出', disabled: true }
   if (!preset.downloadable) return { kind: 'export', label: '不可在线下载', disabled: true }
+  if (blocked) return { kind: 'none', label: '等待下载完成', disabled: true }
   return { kind: 'download', label: '下载', disabled: false }
 }
 
@@ -347,6 +350,17 @@ export function createSettingsModels(
       try {
         const next = await action()
         setState(next)
+        if (key.startsWith('download:')) {
+          // The 202 body can race the manager's first progress update; pull
+          // once more shortly after so the progress bar starts even when the
+          // response carried no `download` block (issue #57).
+          window.setTimeout(() => {
+            void client
+              .getState()
+              .then((fresh: ModelState) => setState(fresh))
+              .catch(() => undefined)
+          }, 1200)
+        }
       } catch (failure) {
         setError(describeApiError(failure))
       } finally {
@@ -595,6 +609,21 @@ export function createSettingsModels(
         { key: 'presets-head', style: styles.row },
         React.createElement('span', { style: styles.modelName }, '预设模型'),
         presets.length > 0 ? React.createElement('span', { style: styles.meta }, presets.length + ' 个可用预设') : null,
+        React.createElement(
+          'span',
+          { style: styles.row },
+          React.createElement('span', { style: styles.badge }, state && state.source === 'mock' ? '演示数据' : '实时数据'),
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              onClick: () => setReloadToken((value: number) => value + 1),
+              style: styles.button,
+              'aria-label': '刷新模型状态',
+            },
+            '刷新状态',
+          ),
+        ),
       ),
       ...presets.map(renderPreset),
     )
