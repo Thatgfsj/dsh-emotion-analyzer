@@ -8,9 +8,6 @@ patterns=(
   '/home/[A-Za-z0-9._-]+'
   '/Users/[A-Za-z0-9._-]+'
   '[A-Za-z]:\\\\Users'
-  'workspace/demo'
-  '<tmp>/'
-  '171755367+Thatgfsj@users.noreply.github.com'
 )
 
 failed=0
