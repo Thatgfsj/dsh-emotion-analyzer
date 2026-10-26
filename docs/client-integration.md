@@ -11,9 +11,7 @@
 | `settings.general.item` | root（list） | Settings → General 的「显示情绪监测悬浮框」开关 |
 | `plugins.bundle.config` | root（keyed，key=包名） | 插件管理页（Bundle 详情）内嵌完整设置区：显隐/重置 + 模型管理/下载/切换/测试（#50） |
 
-插件详情页配置区（真实页面验证，v0.2.1）：
-
-![plugin page config](screenshots/plugin-page-config.png)
+插件详情页配置区（真实页面验证）：为避免暴露本机工作区，不提交页面截图，以 DOM/配置区断言为准。
 | `settings.section` | root（section） | Settings → 情绪分析器 / Emotion Monitor 页面：显隐/重置 + **模型管理区**（#40） |
 
 `apply(ctx)` 里通过 `ctx.effect(() => ctx.slots.inject(name, () => ctx.slots.register(...)))` 注册，全部随插件 fiber 卸载自动清理（`inject` 回调返回合并 disposer）。

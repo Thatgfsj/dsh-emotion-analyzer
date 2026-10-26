@@ -152,12 +152,12 @@ Horizon 两条 miss 来自模型原始分布（第一条最高标签 disappointm
 复跑方式（不会提交权重）：
 
 ```sh
-# 1) 下载到任意目录（示例 /tmp）
+# 1) 下载到任意本地目录
 huggingface-cli download Horizon-Labs/multilingual-emotions-small \
-  --include 'onnx/model_quantized.onnx' 'tokenizer.json' 'config.json' --local-dir /tmp/horizon-small
+  --include 'onnx/model_quantized.onnx' 'tokenizer.json' 'config.json' --local-dir <任意目录>/horizon-small
 
 # 2) 跑真实模型回归（legacy 40/40 也会在 assets 存在时一起跑）
-DSH_EMOTION_HORIZON_DIR=/tmp/horizon-small node --test tests/models-accuracy.test.ts
+DSH_EMOTION_HORIZON_DIR=<任意目录>/horizon-small node --test tests/models-accuracy.test.ts
 ```
 
 ## 8. 离线 / 代理 / 风险

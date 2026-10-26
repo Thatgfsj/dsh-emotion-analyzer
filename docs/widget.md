@@ -17,7 +17,7 @@ npm install --ignore-scripts
 npm run build                       # -> demo/widget.iife.js
 # 直接打开 demo/index.html，或：
 google-chrome --headless=new --disable-gpu --no-sandbox \
-  --screenshot=/tmp/widget.png --window-size=1200,800 \
+  --screenshot=widget.png --window-size=1200,800 \
   'file:///path/to/demo/index.html'
 ```
 
@@ -207,10 +207,10 @@ npm run build      # demo/widget.iife.js
 3. 打开 `demo/index.html?theme=light`（compact 默认态）与 `?theme=light&view=expanded`（展开态），等待渲染后 `Page.captureScreenshot`；
 4. 通过 `Runtime.evaluate` / `Input.dispatchMouseEvent` 验证点击徽章展开、`[—]` 收起、无 hover 预览、关闭/重开与明暗主题，并输出 `docs/screenshots/*.png`（每张 < 200KB）。
 
-## 真实 DSH 页面验证（emo-web profile）
+## 真实 DSH 页面验证
 
-Headless Chrome CDP 在真实 DSH Web 页面验证：
+Headless Chrome CDP 在真实 DSH Web 页面验证（不提交页面截图，避免暴露本机工作区）：
 
 - `<emotion-monitor>` 正常升级（修复前构造函数写宿主属性导致 `NotSupportedError`，页面只有 HTMLUnknownElement —— 见 #20）。
-- 展开态截图：[real-page-expanded.png](screenshots/real-page-expanded.png)；折叠徽章截图：[real-page-collapsed.png](screenshots/real-page-collapsed.png)。
 - 默认 compact（64×64，emoji + 中文）→ 点击展开；`[—]` 收起；hover 不展开（#31/#34）。
+- 展开态/折叠态以 DOM 与计算样式断言为准。

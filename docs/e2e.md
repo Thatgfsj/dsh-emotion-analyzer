@@ -20,12 +20,12 @@
 | Host 插件真实加载 | ✅ `dsh --profile emo-test --help` EXIT 0；`import('dsh-emotion-analyzer')` 成功 | #17/#18 |
 | 真实模型完整 turn（回复→打分→投影→UI） | ⚠️ **未在本机复跑**：本机 web 进程没有可用的 API key/账号路由（headless profile 报 `MISSING_CREDENTIAL`）。各段分别验证：推理真实模型测试、appendPluginRecord/投影 fold 回归、客户端 store 单测、真实页面挂载。 | 见下节 |
 
-## 真实页面（emo-web profile + 合成会话日志）
+## 真实页面（隔离 profile + 合成会话日志）
 
-用隔离的 `DSH_HOME=<isolated-dsh-home>` 启动 `dsh --profile emo-web --port 3099`，Headless Chrome CDP 加载真实页面：
+在隔离的 DSH_HOME 与测试 profile 下启动 DSH Web，Headless Chrome CDP 加载真实页面（为避免暴露本机工作区，不提交页面截图）：
 
-- 展开态（等待第一条回复）：![real page expanded](screenshots/real-page-expanded.png)
-- 折叠徽章（48×48，😐）：![real page collapsed](screenshots/real-page-collapsed.png)
+- 展开态、折叠徽章以 DOM/计算样式断言为准；
+- 本机工作区名、绝对路径、profile 名一律不写入仓库。
 
 CDP 断言（真实页面）：
 

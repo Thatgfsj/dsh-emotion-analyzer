@@ -21,9 +21,9 @@
 - **Session projection**：每轮分数以 `plugin:emotion-analyzer/turn`（ignorable）写入会话日志，由 `emotion` projection 单元纯同步 fold；重启、fork 自动恢复。
 - **悬浮框**：Web Components + Shadow DOM；**默认 64px compact 徽章（emoji + 中文情绪）**，可拖拽；点击展开分数条/sparkline，再点 [—] 折叠；无 [×]/重开 chip，显示/隐藏只由 Settings → 情绪分析器控制（#31、#34）。
 
-| 折叠徽章 | 暗色主题 | 真实 DSH 页面 |
+| 折叠徽章 | 暗色主题 | 等待态 |
 |---|---|---|
-| ![折叠](docs/screenshots/widget-collapsed.png) | ![暗色](docs/screenshots/widget-dark.png) | ![真实页面](docs/screenshots/real-page-expanded.png) |
+| ![折叠](docs/screenshots/widget-collapsed.png) | ![暗色](docs/screenshots/widget-dark.png) | ![等待态](docs/screenshots/widget-waiting.png) |
 
 ## 架构（DSH 0.2.1-rc.2 实际 API）
 

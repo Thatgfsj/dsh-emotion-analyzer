@@ -60,7 +60,8 @@
     "check": "npm run typecheck && npm run test",
     "export:model": "python3 scripts/export_model.py",
     "validate:model": "python3 scripts/validate.py",
-    "prepack": "node scripts/build.mjs"
+    "prepack": "node scripts/build.mjs",
+    "privacy": "bash scripts/check-privacy.sh"
   },
   "dependencies": {
     "onnxruntime-node": "^1.23.0",

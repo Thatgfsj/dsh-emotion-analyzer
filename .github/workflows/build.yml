@@ -24,6 +24,8 @@ jobs:
         run: npm ci
       - name: Typecheck
         run: npm run typecheck
+      - name: Privacy check (no local paths in tracked files)
+        run: npm run privacy
       - name: Test
         run: npm test
       - name: Build
