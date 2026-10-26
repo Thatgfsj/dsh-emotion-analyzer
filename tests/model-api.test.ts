@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import {
   ModelApiError,
   createModelApi,
   describeApiError,
+  getModelApi,
+  resetModelApi,
   downloadPercent,
   downloadStatusLabel,
   errorFromResponse,
@@ -151,6 +154,56 @@ test('normalizeModelState accepts models/presets aliases and derives flags', () 
   assert.deepEqual(empty.presets, [])
 })
 
+test('real host state fixture: error:null must not become a failed download (#62 H2)', () => {
+  const raw = JSON.parse(
+    readFileSync(new URL('./fixtures/model-state-host.json', import.meta.url), 'utf8'),
+  )
+  const state = normalizeModelState(raw)
+  assert.equal(state.download, null, 'no phantom download/failure for healthy models')
+  assert.equal(state.selectedModelId, 'horizon-small')
+  assert.equal(state.effectiveModelId, 'horizon-small')
+  assert.equal(state.effectiveFallback, false)
+  assert.equal(state.runtimeError, null)
+  assert.equal(state.current?.id, 'horizon-small')
+  assert.equal(state.presets.find((preset) => preset.id === 'horizon-small')?.installed, true)
+  assert.equal(state.presets.find((preset) => preset.id === 'horizon-base')?.installed, false)
+  assert.equal(state.presets.find((preset) => preset.id === 'zh-johnson-small')?.needsExport, true)
+})
+
+test('normalizeModelState separates selected and effective runtime (#62 H5)', () => {
+  const base = JSON.parse(
+    readFileSync(new URL('./fixtures/model-state-host.json', import.meta.url), 'utf8'),
+  )
+  const fallback = normalizeModelState({
+    ...base,
+    activeModelId: 'horizon-base',
+    effectiveModelId: 'legacy-tabularisai',
+    effectiveFallback: true,
+    runtimeError: null,
+  })
+  assert.equal(fallback.selectedModelId, 'horizon-base')
+  assert.equal(fallback.effectiveModelId, 'legacy-tabularisai')
+  assert.equal(fallback.current?.id, 'legacy-tabularisai')
+  assert.equal(fallback.effectiveFallback, true)
+  assert.equal(fallback.fallback, true)
+
+  const broken = normalizeModelState({
+    ...base,
+    activeModelId: 'horizon-base',
+    effectiveModelId: null,
+    effectiveFallback: false,
+    runtimeError: 'model file checksum mismatch',
+  })
+  assert.equal(broken.current, null)
+  assert.equal(broken.effectiveModelId, null)
+  assert.equal(broken.runtimeError, 'model file checksum mismatch')
+  assert.ok(broken.warnings.includes('model file checksum mismatch'))
+
+  const noModel = normalizeModelState({ activeModelId: 'horizon-base', models: base.models, effectiveModelId: null, effectiveFallback: false, runtimeError: null })
+  assert.equal(noModel.current, null)
+  assert.equal(noModel.effectiveFallback, false)
+})
+
 test('normalizeTestResult clamps scores and keeps metadata', () => {
   const result = normalizeTestResult({
     modelId: 'horizon-small',
@@ -172,6 +225,9 @@ test('errorFromResponse / describeApiError produce readable Chinese text', () =>
   const notFound = errorFromResponse(404, { message: 'no route' })
   assert.equal(notFound.status, 404)
   assert.equal(notFound.message, 'no route')
+  const nested = errorFromResponse(409, { error: { code: 'download_busy', message: '下载中' } })
+  assert.equal(nested.message, '下载中')
+  assert.equal(nested.code, 'download_busy')
   const generic = errorFromResponse(500, null)
   assert.match(generic.message, /内部错误/)
   assert.equal(describeApiError(notFound), 'no route')
@@ -229,19 +285,42 @@ test('mock client: remove cancels an in-flight download', async () => {
   assert.equal(after.download, null)
 })
 
-test('auto mode falls back to mock when host routes are missing', async () => {
+test('strict live default surfaces 404/network errors instead of faking mock success (#62 H4)', async () => {
   const calls: string[] = []
   const fetchImpl = (async (url: string) => {
     calls.push(String(url))
-    return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } })
+    return new Response(JSON.stringify({ error: { code: 'not_found', message: 'no route' } }), {
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+    })
   }) as unknown as typeof fetch
-  const api = createModelApi({ mode: 'auto', fetchImpl })
-  const state = await api.getState()
-  assert.equal(state.source, 'mock')
-  assert.match(state.mockReason ?? '', /not found/)
-  assert.equal(calls.length, 1)
-  const tested = await api.testModel('hello')
-  assert.equal(tested.modelId, 'horizon-small')
+  const api = createModelApi({ fetchImpl })
+  await assert.rejects(() => api.getState(), (error: unknown) => {
+    assert.ok(error instanceof ModelApiError)
+    assert.equal(error.status, 404)
+    assert.equal(error.message, 'no route')
+    assert.equal(error.code, 'not_found')
+    return true
+  })
+  await assert.rejects(() => api.testModel('hello'), ModelApiError)
+  assert.equal(calls.length, 2, 'every call hit the live endpoint')
+  assert.equal(api.mode, null, 'no mock fallback was resolved')
+})
+
+test('mock is opt-in through explicit mode / global flag (#62 H4)', async () => {
+  const explicit = createModelApi({ mode: 'mock' })
+  assert.equal((await explicit.getState()).source, 'mock')
+
+  const globals = globalThis as Record<string, unknown>
+  const previous = globals.__EMOTION_MODEL_API_MODE__
+  try {
+    globals.__EMOTION_MODEL_API_MODE__ = 'mock'
+    resetModelApi()
+    assert.equal((await getModelApi().getState()).source, 'mock')
+  } finally {
+    globals.__EMOTION_MODEL_API_MODE__ = previous
+    resetModelApi()
+  }
 })
 
 test('live mode sends same-origin credentials and JSON bodies', async () => {

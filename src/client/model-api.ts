@@ -9,17 +9,19 @@
  *   POST   /api/emotion-analyzer/v1/test           { text } -> ModelTestResult
  *
  * All requests are same-origin with credentials: 'include'. Errors are
- * normalised to ModelApiError with a human-readable Chinese message. When the
- * host API is not available yet (404 / network error) the client can fall back
- * to a self-contained mock registry so the settings UI can still be reviewed;
- * the UI labels that state as 演示模式.
+ * normalised to ModelApiError with a human-readable Chinese message.
+ *
+ * Production is strict live: a 404 / network error is surfaced to the UI and is
+ * never replaced with fake success data (issue #62 H4). Mock data is available
+ * only when explicitly requested with '?emotionModelMock=1' or
+ * createModelApi({ mode: 'mock' }).
  */
 
 export const MODEL_API_BASE = '/api/emotion-analyzer/v1'
 export const MODEL_POLL_INTERVAL_MS = 1000
 
 export type ModelSource = 'live' | 'mock'
-export type ModelApiMode = 'auto' | 'live' | 'mock'
+export type ModelApiMode = 'live' | 'mock'
 
 export type DownloadStatus =
   | 'idle'
@@ -67,9 +69,19 @@ export interface ModelPreset {
 }
 
 export interface ModelState {
+  /** Currently effective runtime preset (null when no model is usable). */
   current: ModelPreset | null
   presets: ModelPreset[]
+  /** User-selected preset id (host activeModelId); may differ from effective. */
+  selectedModelId: string | null
+  /** Legacy alias: selected preset id, not the effective one. */
   activeModelId: string | null
+  /** Actually loaded runtime preset id (host effectiveModelId, #60). */
+  effectiveModelId: string | null
+  /** True when the selected model is missing/damaged and a legacy fallback runs. */
+  effectiveFallback: boolean
+  /** Host runtime failure (model load/checksum), shown instead of fake success. */
+  runtimeError: string | null
   download: ModelDownload | null
   needsExport: boolean
   fallback: boolean
@@ -322,21 +334,49 @@ export function normalizeModelState(raw: unknown, source: ModelSource = 'live', 
   const presets = rawPresets
     .map((entry) => normalizePreset(entry))
     .filter((entry): entry is ModelPreset => entry !== null)
-  const currentRaw = record.current ?? record.activeModel ?? record.selectedModel
-  let current = normalizePreset(currentRaw)
-  const activeModelId =
-    firstString(record.activeModelId, record.currentModelId, record.selectedId) ??
-    (current ? current.id : null)
-  if (!current && activeModelId) {
-    current = presets.find((preset) => preset.id === activeModelId) ?? null
+  const legacyCurrent = normalizePreset(record.current ?? record.activeModel ?? record.selectedModel)
+  const selectedModelId =
+    firstString(record.activeModelId, record.selectedModelId, record.currentModelId, record.selectedId) ??
+    (legacyCurrent ? legacyCurrent.id : null)
+
+  // Issue #60 adds effectiveModelId / effectiveFallback / runtimeError. Older
+  // host builds (#39) only expose activeModelId + fallbackActive; keep working.
+  const hasRuntimeFields =
+    Object.prototype.hasOwnProperty.call(record, 'effectiveModelId') ||
+    Object.prototype.hasOwnProperty.call(record, 'effectiveFallback') ||
+    Object.prototype.hasOwnProperty.call(record, 'runtimeError')
+  let effectiveModelId: string | null
+  let effectiveFallback: boolean
+  let runtimeError: string | null
+  if (hasRuntimeFields) {
+    effectiveFallback = firstBoolean(record.effectiveFallback) === true
+    runtimeError = firstString(record.runtimeError, record.runtimeErrorMessage) ?? null
+    effectiveModelId = firstString(record.effectiveModelId) ?? null
+  } else {
+    effectiveFallback = firstBoolean(record.fallbackActive, record.fallback) === true
+    runtimeError = null
+    effectiveModelId = selectedModelId ?? (legacyCurrent ? legacyCurrent.id : null)
   }
+  if (!effectiveModelId && effectiveFallback) {
+    const legacy = presets.find((preset) => preset.installed && (preset.legacy || /legacy/i.test(preset.id)))
+    if (legacy) effectiveModelId = legacy.id
+  }
+  let current: ModelPreset | null = effectiveModelId
+    ? presets.find((preset) => preset.id === effectiveModelId) ?? null
+    : null
+  if (!current && !hasRuntimeFields && legacyCurrent) {
+    current = legacyCurrent
+    effectiveModelId = legacyCurrent.id
+  }
+
   const downloadId = firstString(record.downloadingId, record.pendingModelId)
   let downloadRaw = record.download ?? record.downloadState ?? record.progress
   if (downloadRaw === undefined && Array.isArray(presetSource)) {
-    // Host #39 state carries per-model transfer fields, not a top-level download.
+    // Host #39 state carries per-model transfer fields, not a top-level
+    // download. H2: error:null is a healthy installed model, not a failure.
     const active = (presetSource as Record<string, unknown>[]).find((entry) => {
       if (!isRecord(entry)) return false
-      return entry.downloading === true || entry.error !== undefined
+      return entry.downloading === true || (entry.error !== null && entry.error !== undefined && entry.error !== '')
     })
     if (isRecord(active)) {
       const progress = isRecord(active.progress) ? active.progress : {}
@@ -346,21 +386,25 @@ export function normalizeModelState(raw: unknown, source: ModelSource = 'live', 
         percent: firstNumber(progress.percent),
         receivedBytes: firstNumber(progress.receivedBytes),
         totalBytes: firstNumber(progress.totalBytes),
-        error: firstString(active.error),
+        error: active.downloading === true ? undefined : firstString(active.error),
       }
     }
   }
   const download = normalizeDownload(downloadRaw, downloadId)
   const warnings = stringList(record.warnings ?? record.notices)
-  const fallback =
-    firstBoolean(record.fallback, record.fallbackActive) === true || (current ? current.fallback : false)
+  if (runtimeError && !warnings.includes(runtimeError)) warnings.push(runtimeError)
+  const fallback = effectiveFallback || (current ? current.fallback : false)
   const needsExport =
     firstBoolean(record.needsExport, record.requiresExport) === true ||
     presets.some((preset) => preset.needsExport && !preset.installed)
   return {
     current,
     presets,
-    activeModelId: current ? current.id : activeModelId,
+    selectedModelId,
+    activeModelId: selectedModelId,
+    effectiveModelId,
+    effectiveFallback,
+    runtimeError,
     download,
     needsExport,
     fallback,
@@ -403,15 +447,26 @@ export function describeApiError(error: unknown): string {
   return String(error)
 }
 
-function errorMessageFromBody(body: unknown): string | undefined {
-  if (typeof body === 'string') return body.trim() || undefined
-  if (!isRecord(body)) return undefined
-  return firstString(body.message, body.error, body.detail, body.reason)
+function errorInfoFromBody(body: unknown): { message?: string; code?: string } {
+  if (typeof body === 'string') return { message: body.trim() || undefined }
+  if (!isRecord(body)) return {}
+  const nested = isRecord(body.error) ? body.error : undefined
+  return {
+    message: firstString(
+      nested?.message,
+      body.message,
+      typeof body.error === 'string' ? body.error : undefined,
+      body.detail,
+      body.reason,
+    ),
+    code: firstString(nested?.code, body.code),
+  }
 }
 
 /** Build the error for a non-2xx HTTP response. */
 export function errorFromResponse(status: number, body: unknown): ModelApiError {
-  const serverMessage = errorMessageFromBody(body)
+  const info = errorInfoFromBody(body)
+  const serverMessage = info.message
   const fallback =
     status === 404
       ? '模型 API 不可用（404），宿主后端可能尚未就绪。'
@@ -422,7 +477,12 @@ export function errorFromResponse(status: number, body: unknown): ModelApiError 
           : status >= 500
             ? '模型服务内部错误，请稍后重试。'
             : '模型请求失败（HTTP ' + status + '）。'
-  return new ModelApiError(serverMessage ?? fallback, status, status === 404 ? 'api-unavailable' : 'http-error', serverMessage)
+  return new ModelApiError(
+    serverMessage ?? fallback,
+    status,
+    info.code ?? (status === 404 ? 'api-unavailable' : 'http-error'),
+    serverMessage,
+  )
 }
 
 async function requestJson(
@@ -447,10 +507,6 @@ async function requestJson(
   }
   if (!response.ok) throw errorFromResponse(response.status, body)
   return body
-}
-
-function isUnavailableError(error: unknown): boolean {
-  return error instanceof ModelApiError && (error.status === 0 || error.status === 404)
 }
 
 function mockPresets(): ModelPreset[] {
@@ -587,7 +643,11 @@ class MockBackend {
     return {
       current,
       presets: this.presets,
+      selectedModelId: this.activeId,
       activeModelId: this.activeId,
+      effectiveModelId: current ? current.id : null,
+      effectiveFallback: false,
+      runtimeError: null,
       download,
       needsExport: this.presets.some((preset) => preset.needsExport && !preset.installed),
       fallback: current ? current.fallback : false,
@@ -680,7 +740,7 @@ export class ModelApiClient {
   constructor(options: ModelApiOptions = {}) {
     this.baseUrl = (options.baseUrl ?? MODEL_API_BASE).replace(/\/$/, '')
     this.fetchImpl = options.fetchImpl ?? fetch
-    this.requestedMode = options.mode ?? 'auto'
+    this.requestedMode = options.mode ?? 'live'
     this.now = options.now ?? (() => Date.now())
     this.mock = new MockBackend(this.now)
     if (this.requestedMode === 'mock') this.resolvedMode = 'mock'
@@ -710,18 +770,11 @@ export class ModelApiClient {
 
   private async stateCall(path: string, init: RequestInit = {}): Promise<ModelState> {
     if (this.isMock()) return this.mockState()
-    try {
-      const state = await this.liveState(path, init)
-      this.resolvedMode = 'live'
-      return state
-    } catch (error) {
-      if (this.requestedMode === 'auto' && isUnavailableError(error)) {
-        this.resolvedMode = 'mock'
-        this.mockReason = describeApiError(error)
-        return this.mockState()
-      }
-      throw error
-    }
+    // Strict live (issue #62 H4): failures propagate to the UI; never fake a
+    // successful mock state on 404 / network errors.
+    const state = await this.liveState(path, init)
+    this.resolvedMode = 'live'
+    return state
   }
 
   /** GET /state. */
@@ -753,15 +806,8 @@ export class ModelApiClient {
     const body = await requestJson(this.fetchImpl, this.baseUrl + '/test', {
       credentials: 'include',
       ...this.postBody({ text }),
-    }).catch((error) => {
-      if (this.requestedMode === 'auto' && isUnavailableError(error)) {
-        this.resolvedMode = 'mock'
-        this.mockReason = describeApiError(error)
-        return this.mock.testModel(text)
-      }
-      throw error
     })
-    return normalizeTestResult(body, this.mock.completed.id ?? '')
+    return normalizeTestResult(body)
   }
 
   /**
@@ -810,16 +856,16 @@ export class ModelApiClient {
   }
 }
 
-function readGlobalMode(): ModelApiMode | null {
+function readGlobalMode(): ModelApiMode {
   const globalObject = globalThis as { __EMOTION_MODEL_API_MODE__?: unknown }
   const explicit = globalObject.__EMOTION_MODEL_API_MODE__
-  if (explicit === 'mock' || explicit === 'live' || explicit === 'auto') return explicit
+  if (explicit === 'mock' || explicit === 'live') return explicit
   if (typeof window !== 'undefined' && typeof window.location !== 'undefined') {
     const search = window.location.search || ''
     if (search.indexOf('emotionModelMock=1') >= 0) return 'mock'
-    if (search.indexOf('emotionModelLive=1') >= 0) return 'live'
   }
-  return null
+  // Production default: strict live. Mock is opt-in only (issue #62 H4).
+  return 'live'
 }
 
 let singleton: ModelApiClient | null = null
@@ -827,7 +873,7 @@ let singleton: ModelApiClient | null = null
 /** Shared client for the settings UI (host provides same-origin fetch). */
 export function getModelApi(): ModelApiClient {
   if (singleton === null) {
-    singleton = new ModelApiClient({ mode: readGlobalMode() ?? 'auto' })
+    singleton = new ModelApiClient({ mode: readGlobalMode() })
   }
   return singleton
 }

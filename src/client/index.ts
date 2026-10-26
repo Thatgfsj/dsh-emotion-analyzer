@@ -102,12 +102,18 @@ export default function createPlugin(require: RequireFn): {
     React.useEffect(() => subscribeEmotion((next) => setSnapshot(next)), [])
 
     const data: WidgetData | null = snapshot.data
+    const dataSessionId = data === null ? null : (data.sessionId ?? null)
+    // Issue #62 H7: re-apply the current snapshot when the widget remounts
+    // (hidden → shown) and reset it when the active session has no data.
     React.useEffect(() => {
       const element = elementRef.current
-      if (element !== null && data !== null && typeof element.update === 'function') {
-        element.update(data)
+      if (element === null) return
+      if (data === null) {
+        if (typeof element.reset === 'function') element.reset()
+        return
       }
-    }, [data])
+      if (typeof element.update === 'function') element.update(data)
+    }, [data, visible, dataSessionId])
 
     // Issue #34: no close event / reopen chip. Visibility is owned solely by
     // Settings → 情绪分析器; the widget itself has no close button.
