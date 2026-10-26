@@ -28,16 +28,30 @@ let snapshot: EmotionStoreSnapshot = { data: null, updatedAt: 0 }
 let lastKey = 'null'
 const listeners = new Set<(snapshot: EmotionStoreSnapshot) => void>()
 
+/** True when at least one score is a positive finite number. */
+export function hasScoredSignal(scores: Record<string, unknown> | null | undefined): boolean {
+  if (!scores || typeof scores !== 'object') return false
+  return Object.values(scores).some(
+    (value) => typeof value === 'number' && Number.isFinite(value) && value > 0,
+  )
+}
+
 /** Translate a projection wire value into the widget's shape. */
 export function toWidgetData(
   value: EmotionWireValue | undefined | null,
   sessionId?: string,
 ): WidgetData | null {
   if (value === undefined || value === null || typeof value !== 'object') return null
+  // Issue #62 H6: an empty projection (turn 0 / all-zero scores) is not data.
+  // Returning null keeps the widget on 「等待第一条回复」 and avoids writing a
+  // fake trend into localStorage.
+  const turn = typeof value.turn === 'number' && Number.isFinite(value.turn) ? value.turn : 0
+  if (turn <= 0) return null
   const displayScores = value.turnScores && Object.keys(value.turnScores).length > 0
     ? value.turnScores
     : value.scores
   if (!displayScores || typeof displayScores !== 'object') return null
+  if (!hasScoredSignal(displayScores as Record<string, unknown>)) return null
   return {
     turn: value.turn,
     dominant: value.turnDominant ?? value.dominant,
