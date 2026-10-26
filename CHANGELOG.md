@@ -4,21 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 uses [Semantic Versioning](https://semver.org/).
 
-## [0.2.3] - 2026-10-25
+## [0.2.2] - 2026-10-26
 
-### Fixed
+### Fixed（外部审查修复批次 #59）
 
-- 模型页状态卡住（#57）：已下载的 Horizon Small/Base 显示成未安装、legacy/中文一直「处理中」。原因：一个下载进行中时所有卡片被统一成「处理中…」，且下载 202 响应可能早于第一条进度、轮询未启动。现在只有正在下载的卡片显示取消/进度，其他卡片显示各自动作（禁用而非「处理中」）；下载后主动补一次 state 刷新；新增「刷新状态」按钮与「实时/演示数据」标识。
+- **C1/C2 安装与首次运行**：新增 `scripts/check-install.sh` 自检 profile 依赖+bundle+`--dump-config`；README 安装必验；无可用模型时设置页明确提示并引导下载默认模型。
+- **C3 打分生命周期**：冷启动 init 独立 10s 超时，单条推理仍 1.5s；首条回复不再因加载模型超时而丢 projection。
+- **H1 doubt 误报**：剥离 fenced/inline code 与 URL；排除“需要我…吗”等服务性问句；问号降权、仅不确定词/真疑问词给高 doubt。
+- **H2 假下载失败**：`error != null` 判断；真实 host state fixture 回归。
+- **H3 模型完整性/回退**：下载/手动文件大小校验；init/select 失败自动回退 legacy；state 暴露 `effectiveModelId/effectiveFallback/runtimeError`。
+- **H4 自动 mock**：生产默认 strict live；mock 仅显式参数；失败不再伪造成功。
+- **H5 当前模型**：UI 区分“已选择”和“实际生效”。
+- **H6/H7 悬浮框状态**：空 projection 视为无数据、不写 localStorage；隐藏→显示/切会话正确 reset/回填。
+- **H8 中文预设**：改为 manual/experimental：用户手动把 `model.onnx`+`tokenizer.json`+`config.json` 放到 `$DSH_HOME/emotion-analyzer/models/zh-johnson-small/`，不再给错误导出指引。
+- **H9/文档**：补充 apply/超时/state 归一化回归；README/architecture 隐私说明（推理不联网、下载模型联网）；Node engines >=22.18；修正体积/尺寸/版本描述。
 
-## [0.2.2] - 2026-10-25
+### Changed（此前 0.2.2/0.2.3 快速版本合并进本版本）
 
-### Fixed
+- 深色/浅色 token 修正：`bg-layer-1/2`、`bg-mask-1`、`label-primary-foreground`，fallback 改为透明/继承/中性灰。
+- 预设展示：Horizon Small（默认）、Horizon Base（推荐）、tabularisai（回退默认）、Chinese Emotion（中文）。
+- 模型页状态卡住：下载中只让当前卡片显示取消/进度；下载后主动刷新；新增刷新状态按钮与实时/演示数据标识。
 
-- 插件设置区深色/浅色模式：修正无效 token 名（`bg-l1/bg-l2/fill-l1/label-primary-inverted` → `bg-layer-1/2/bg-mask-1/label-primary-foreground`），fallback 从硬编码浅色改为透明/继承/中性灰；插件详情页与 Settings 两处共用同一套 token（#52）。
+### Verification
 
-### Changed
-
-- 预设模型按用户指定展示：**Horizon Small（默认）**、**Horizon Base（推荐）**、**tabularisai（回退默认）**、**Chinese Emotion（中文）**；中文模型标记「需本地导出（建议大肥鱼帮助）」（#53）。
+- `npm run check`：146 tests / 145 pass / 1 skip / 0 fail；`npm run build` 通过。
+- `bash scripts/check-install.sh web`：依赖+bundle+`--dump-config` 均 OK。
 
 ## [0.2.1] - 2026-10-25
 

@@ -38,7 +38,11 @@ function state(overrides: Partial<ModelState> = {}): ModelState {
   return {
     current: preset(),
     presets: [preset()],
+    selectedModelId: 'horizon-small',
     activeModelId: 'horizon-small',
+    effectiveModelId: 'horizon-small',
+    effectiveFallback: false,
+    runtimeError: null,
     download: null,
     needsExport: false,
     fallback: false,

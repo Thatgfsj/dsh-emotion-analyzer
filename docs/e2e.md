@@ -133,3 +133,15 @@ CDP 断言（真实页面）：
 | npm run build | 通过（含 lib/models/*） |
 | 模型 Host API | 路由单测通过；DELETE 方法运行时验证待真实页面 |
 | 设置页模型 UI | 单测 + build 通过；真实页面模型区截图待补（欢迎页登录态限制） |
+## 0.2.2 外部审查修复验证
+
+| 项 | 结果 |
+|---|---|
+| 冷启动慢 init 首轮仍写 record | 单测覆盖（fake slow init，init 超时 10s / score 1.5s） |
+| H2 error:null 不再产生假失败 | 真实 host state fixture 测试通过 |
+| H4 默认 strict live | 404 不再自动 mock；显式参数才 mock |
+| H6 空 projection | store 返回 data=null，widget 不写 storage |
+| H7 隐藏/切会话 | update effect 依赖 visible/sessionId，reset/回填 |
+| H3 坏模型回退 | 同尺寸坏 ONNX 测试：标记错误并回退 legacy |
+| 安装自检 | `bash scripts/check-install.sh web` 输出 OK |
+| 全量测试 | `npm run check` 146 tests / 145 pass / 1 skip / 0 fail；build 通过 |
