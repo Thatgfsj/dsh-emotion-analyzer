@@ -1,10 +1,13 @@
 /**
- * 模型运行时服务（v0.2 / issue #39）。
+ * 模型运行时服务（v0.2 / issue #39；v0.2.2 修复 #60/#64/#65）。
  *
  * 把 registry（预设）、manager（下载）、profiles（映射）、settings（选择）
  * 与 EmotionScorer（推理）串起来：
- * - 默认 activeModelId = horizon-small；未下载时回退 legacy assets（warning）；
- * - 切换模型时 dispose 旧 session，下一次打分惰性初始化新模型；
+ * - 默认 activeModelId = horizon-small；未下载时回退 legacy assets；
+ * - 选择 / 首次初始化时真实加载一次 ONNX；失败自动回退 legacy，并把原因
+ *   暴露到 `state.runtimeError`（review H3）；
+ * - 中文 zh 预设是 manual/experimental：只接受手动放置的
+ *   `$DSH_HOME/emotion-analyzer/models/zh-johnson-small/{model.onnx,tokenizer.json,config.json}`；
  * - 为 Host routes 提供 state / select / download / delete / test 所需方法。
  */
 import { join } from 'node:path'
@@ -40,14 +43,24 @@ export interface ActiveRuntime {
   readonly profile: MappingProfile
   readonly modelPath: string
   readonly tokenizerPath: string
-  /** 用户选择与生效模型不一致（默认模型未下载 → legacy 回退）。 */
+  /** 用户选择与生效模型不一致（选择模型不可用 → legacy 回退）。 */
   readonly fallbackActive: boolean
 }
 
-/** `GET state` 的返回体。 */
+/** `GET state` 的返回体（v0.2.2 增加 hasUsableModel / effective* / runtimeError）。 */
 export interface ModelStatePayload {
+  /** 用户配置里选择的模型 id（可能未安装）。 */
   readonly activeModelId: string
+  /** 兼容旧客户端：等于 effectiveFallback。 */
   readonly fallbackActive: boolean
+  /** 当前是否真的有一套可用的模型文件（看 active runtime，不做 ONNX 加载）。 */
+  readonly hasUsableModel: boolean
+  /** 实际生效的模型 id（回退后是 legacy），没有可用模型时为 null。 */
+  readonly effectiveModelId: string | null
+  /** 实际生效模型是否不同于 activeModelId（回退）。 */
+  readonly effectiveFallback: boolean
+  /** 最近一次加载失败 / 完整性错误原因；正常为 null。 */
+  readonly runtimeError: string | null
   readonly models: readonly ModelStateEntry[]
   readonly provider: ProviderSettings
 }
@@ -66,7 +79,12 @@ export interface ModelStateEntry {
   readonly downloading: boolean
   readonly progress: { readonly receivedBytes: number; readonly totalBytes: number; readonly percent: number }
   readonly error: string | null
+  readonly errorCode: string | null
   readonly needsExport: boolean
+  readonly manual: boolean
+  readonly experimental: boolean
+  /** manual 预设的手动安装目录（其他模型为 null）。 */
+  readonly installPath: string | null
   /** UI role badges. */
   readonly default: boolean
   readonly recommended: boolean
@@ -116,6 +134,12 @@ function runtimePaths(
   return { modelPath: join(modelDir, model.path), tokenizerPath: join(modelDir, tokenizer.path) }
 }
 
+interface ResolvedRuntime {
+  readonly runtime?: ActiveRuntime
+  /** 只有真正的完整性问题 / 无模型才设置；普通“未安装 → 回退”不算错误。 */
+  readonly error?: string
+}
+
 /** 模型运行时服务。 */
 export class EmotionModelService {
   private readonly options: EmotionModelServiceOptions
@@ -126,6 +150,9 @@ export class EmotionModelService {
   private scorer: EmotionScorer | undefined
   private initialized = false
   private initPromise: Promise<void> | undefined
+  private ready: 'idle' | 'ready' | 'failed' = 'idle'
+  private readyPromise: Promise<boolean> | undefined
+  private runtimeError: string | null = null
   private warnedFallback = false
 
   constructor(options: EmotionModelServiceOptions = {}) {
@@ -144,12 +171,22 @@ export class EmotionModelService {
     return this.active
   }
 
+  /** 运行时加载状态（测试 / 诊断用）。 */
+  get runtimeState(): 'idle' | 'ready' | 'failed' {
+    return this.ready
+  }
+
+  /** 当前 runtimeError（测试 / 诊断用）。 */
+  get lastRuntimeError(): string | null {
+    return this.runtimeError
+  }
+
   /** 当前 manager（routes / 测试用）。 */
   get modelManager(): ModelManager {
     return this.manager
   }
 
-  /** 读取设置并解析生效模型；可重复调用（幂等）。 */
+  /** 读取设置并解析生效模型；可重复调用（幂等，不做 ONNX 加载）。 */
   async initialize(): Promise<void> {
     if (this.initialized) return
     this.initPromise ??= this.doInitialize()
@@ -160,54 +197,163 @@ export class EmotionModelService {
     this.settingsState = this.options.settingsLoader
       ? await this.options.settingsLoader()
       : await loadSettings({ baseDir: this.options.baseDir, logger: this.logger })
-    this.active = await this.resolveRuntime(this.settingsState.activeModelId)
-    this.initialized = true
+    const resolved = await this.resolveRuntime(this.settingsState.activeModelId)
+    this.active = resolved.runtime
+    this.runtimeError = resolved.error ?? null
+    this.ready = 'idle'
+    if (this.active?.fallbackActive === true && !this.warnedFallback) {
+      this.warnedFallback = true
+      this.logger.warn?.(
+        `[emotion] 模型 ${this.settingsState.activeModelId} 不可用，回退到 legacy assets；` +
+          '可在设置页下载/安装默认模型后切换。',
+      )
+    }
+    if (this.active === undefined && this.runtimeError === null) {
+      this.runtimeError = `没有可用模型：${this.settingsState.activeModelId} 未安装，且 legacy assets 不存在。`
+    }
   }
 
-  /** 根据配置 id 解析实际运行时（下载缺失 → legacy 回退）。 */
-  private async resolveRuntime(configuredId: string): Promise<ActiveRuntime | undefined> {
+  /** 解析配置 id 对应的运行时；失败时尝试 legacy 回退。 */
+  private async resolveRuntime(configuredId: string): Promise<ResolvedRuntime> {
     const configured = getModelPreset(configuredId)
-    if (configured !== undefined && configured.needsExport !== true && (await this.manager.isDownloaded(configured.id))) {
-      const paths = runtimePaths(configured, this.manager.modelDir(configured.id))
-      if (paths !== undefined) {
+    if (configured !== undefined) {
+      const configuredResult = await this.resolvePreset(configured, false)
+      if (configuredResult.runtime !== undefined) return configuredResult
+      const legacy = await this.resolveLegacy()
+      if (legacy !== undefined) {
         return {
-          preset: configured,
-          profile: getMappingProfile(configured.mappingProfile),
-          modelPath: paths.modelPath,
-          tokenizerPath: paths.tokenizerPath,
-          fallbackActive: configured.id !== this.settingsState.activeModelId,
+          runtime: { ...legacy, fallbackActive: true },
+          // 普通“尚未安装 → 回退”不报错；只有完整性/导出问题才暴露 runtimeError。
+          ...(configuredResult.error === undefined ? {} : { error: configuredResult.error }),
         }
       }
+      return { error: configuredResult.error ?? this.noModelMessage(configured) }
     }
 
-    if (await this.manager.isDownloaded(LEGACY_MODEL_ID)) {
-      const legacy = getModelPreset(LEGACY_MODEL_ID)
-      const paths = legacy === undefined ? undefined : runtimePaths(legacy, this.manager.modelDir(LEGACY_MODEL_ID))
-      if (legacy !== undefined && paths !== undefined) {
-        if (!this.warnedFallback && configuredId !== LEGACY_MODEL_ID) {
-          this.warnedFallback = true
-          this.logger.warn?.(
-            `[emotion] 模型 ${configuredId} 尚未下载，回退到 legacy assets；可在设置页下载默认模型后切换。`,
-          )
-        }
-        return {
-          preset: legacy,
-          profile: getMappingProfile(legacy.mappingProfile),
-          modelPath: paths.modelPath,
-          tokenizerPath: paths.tokenizerPath,
-          fallbackActive: configuredId !== LEGACY_MODEL_ID,
-        }
-      }
+    // 未知模型 id（例如旧配置 / 手改 config.json）：直接尝试 legacy。
+    const legacy = await this.resolveLegacy()
+    if (legacy !== undefined) {
+      return { runtime: { ...legacy, fallbackActive: true }, error: `未知模型：${configuredId}` }
     }
-    return undefined
+    return { error: `未知模型：${configuredId}；且 legacy assets 不存在。` }
   }
 
-  /** 重建生效运行时（切换 / 删除后）。 */
+  private noModelMessage(preset: ModelPreset): string {
+    if (preset.manual === true) {
+      return `${preset.name} 需要手动安装：把 model.onnx + tokenizer.json + config.json 放到 ` +
+        `${this.manager.modelDir(preset.id)}/`
+    }
+    return `${preset.name} 尚未安装（下载后即可使用）。`
+  }
+
+  /** 解析单个预设（不包含 legacy 回退）。 */
+  private async resolvePreset(preset: ModelPreset, fallback: boolean): Promise<ResolvedRuntime> {
+    if (preset.needsExport === true) return { error: `${preset.name} 需要先导出 ONNX。` }
+    const integrity = await this.manager.inspectModel(preset.id)
+    if (!integrity.downloaded) {
+      // 单纯“没下载”不是错误，交给上层决定是否回退；损坏/不完整才暴露错误。
+      return integrity.error === undefined ? {} : { error: integrity.error }
+    }
+    const paths = runtimePaths(preset, this.manager.modelDir(preset.id))
+    if (paths === undefined) return { error: `${preset.name} 缺少 model/tokenizer 文件。` }
+    return {
+      runtime: {
+        preset,
+        profile: getMappingProfile(preset.mappingProfile),
+        modelPath: paths.modelPath,
+        tokenizerPath: paths.tokenizerPath,
+        fallbackActive: fallback || preset.id !== this.settingsState.activeModelId,
+      },
+    }
+  }
+
+  /** 解析 legacy 回退运行时。 */
+  private async resolveLegacy(): Promise<ActiveRuntime | undefined> {
+    const legacy = getModelPreset(LEGACY_MODEL_ID)
+    if (legacy === undefined) return undefined
+    const integrity = await this.manager.inspectModel(LEGACY_MODEL_ID)
+    if (!integrity.downloaded) return undefined
+    const paths = runtimePaths(legacy, this.manager.modelDir(LEGACY_MODEL_ID))
+    if (paths === undefined) return undefined
+    return {
+      preset: legacy,
+      profile: getMappingProfile(legacy.mappingProfile),
+      modelPath: paths.modelPath,
+      tokenizerPath: paths.tokenizerPath,
+      fallbackActive: true,
+    }
+  }
+
+  /** 重建运行时（切换 / 删除后）；不主动加载 ONNX。 */
   private async refreshRuntime(): Promise<void> {
-    const previous = this.scorer
-    this.scorer = undefined
-    if (previous !== undefined) await previous.dispose()
-    this.active = await this.resolveRuntime(this.settingsState.activeModelId)
+    this.disposeScorer()
+    this.ready = 'idle'
+    this.readyPromise = undefined
+    const resolved = await this.resolveRuntime(this.settingsState.activeModelId)
+    this.active = resolved.runtime
+    this.runtimeError = resolved.error ?? null
+    if (this.active === undefined && this.runtimeError === null) {
+      this.runtimeError = `没有可用模型：${this.settingsState.activeModelId} 未安装，且 legacy assets 不存在。`
+    }
+  }
+
+  /**
+   * 确保当前模型真的可以推理：必要时加载 ONNX。
+   *
+   * - 保留 lazy：只有第一次打分 / select / test 调用到这里；
+   * - 加载失败自动回退 legacy，并把原因写进 runtimeError；
+   * - 结果缓存（`ready`），避免每轮重复失败重试。
+   */
+  async ensureReady(): Promise<boolean> {
+    await this.initialize()
+    if (this.ready === 'ready') return true
+    if (this.ready === 'failed') return false
+    this.readyPromise ??= this.doEnsureReady()
+    return this.readyPromise
+  }
+
+  private async doEnsureReady(): Promise<boolean> {
+    const runtime = this.active
+    if (runtime === undefined) {
+      this.ready = 'failed'
+      this.runtimeError ??= '没有可用模型'
+      return false
+    }
+    const scorer = this.ensureScorer()
+    if (scorer === undefined) {
+      this.ready = 'failed'
+      return false
+    }
+    if (await scorer.init()) {
+      this.ready = 'ready'
+      return true
+    }
+
+    const failedModel = runtime.preset.id
+    this.runtimeError =
+      `模型 ${failedModel} 加载失败（文件损坏或 ONNX 不受支持）` +
+      (this.runtimeError === null ? '' : `；${this.runtimeError}`)
+    this.disposeScorer()
+
+    if (failedModel !== LEGACY_MODEL_ID) {
+      const legacy = await this.resolveLegacy()
+      if (legacy !== undefined) {
+        this.active = { ...legacy, fallbackActive: true }
+        this.scorer = undefined
+        const fallbackScorer = this.ensureScorer()
+        if (fallbackScorer !== undefined && (await fallbackScorer.init())) {
+          this.ready = 'ready'
+          this.runtimeError = `模型 ${failedModel} 加载失败，已自动回退 legacy；${this.runtimeError}`
+          this.logger.warn?.(`[emotion] ${this.runtimeError}`)
+          return true
+        }
+      }
+    }
+    this.active = undefined
+    this.ready = 'failed'
+    this.runtimeError = `${this.runtimeError}；legacy 回退也不可用`
+    this.logger.error?.(`[emotion] ${this.runtimeError}`)
+    return false
   }
 
   /** 惰性创建 scorer（第一次真正打分时才加载 ONNX）。 */
@@ -226,13 +372,18 @@ export class EmotionModelService {
     return this.scorer
   }
 
-  /** 对文本打分；模型不可用 / 推理失败返回 undefined。 */
+  private disposeScorer(): void {
+    const scorer = this.scorer
+    this.scorer = undefined
+    if (scorer !== undefined) void scorer.dispose()
+  }
+
+  /** 对文本打分；模型不可用 / 推理失败返回 undefined（不抛）。 */
   async score(text: string): Promise<ScoreResult | undefined> {
-    await this.initialize()
+    if (!(await this.ensureReady())) return undefined
     const runtime = this.active
-    if (runtime === undefined) return undefined
-    const scorer = this.ensureScorer()
-    if (scorer === undefined) return undefined
+    const scorer = this.scorer
+    if (runtime === undefined || scorer === undefined) return undefined
     const startedAt = Date.now()
     const raw = await scorer.score(text)
     const latencyMs = Date.now() - startedAt
@@ -246,13 +397,20 @@ export class EmotionModelService {
     }
   }
 
-  /** `POST test`：返回统一 7 维分数。 */
+  /** `POST test`：返回统一 7 维分数；没有可用模型时给出明确错误。 */
   async testModel(text: string): Promise<TestResult> {
-    await this.initialize()
+    if (!(await this.ensureReady())) {
+      throw new ModelServiceError(
+        'model_unavailable',
+        this.runtimeError ?? '没有可用的本地模型，请先在设置页下载/安装模型。',
+        503,
+      )
+    }
     const runtime = this.active
-    if (runtime === undefined) throw new ModelServiceError('model_unavailable', '没有可用的本地模型', 503)
-    const scorer = this.ensureScorer()
-    if (scorer === undefined) throw new ModelServiceError('model_unavailable', '没有可用的本地模型', 503)
+    const scorer = this.scorer
+    if (runtime === undefined || scorer === undefined) {
+      throw new ModelServiceError('model_unavailable', '没有可用的本地模型', 503)
+    }
     const startedAt = Date.now()
     const raw = await scorer.score(text)
     const latencyMs = Date.now() - startedAt
@@ -264,15 +422,21 @@ export class EmotionModelService {
   async getState(): Promise<ModelStatePayload> {
     await this.initialize()
     const statuses = await this.manager.listStatuses()
+    const effectiveFallback = this.active?.fallbackActive ?? false
     return {
       activeModelId: this.settingsState.activeModelId,
-      fallbackActive: this.active?.fallbackActive ?? false,
+      fallbackActive: effectiveFallback,
+      hasUsableModel: this.active !== undefined && this.ready !== 'failed',
+      effectiveModelId: this.active?.preset.id ?? null,
+      effectiveFallback,
+      runtimeError: this.runtimeError,
       models: statuses.map((status) => this.entryOf(status)),
       provider: this.settingsState.provider,
     }
   }
 
   private entryOf(status: ModelStatus): ModelStateEntry {
+    const manual = status.preset.manual === true
     return {
       id: status.preset.id,
       name: status.preset.name,
@@ -286,24 +450,37 @@ export class EmotionModelService {
       downloading: status.downloading,
       progress: status.progress,
       error: status.error ?? null,
+      errorCode: status.errorCode ?? null,
       needsExport: status.needsExport,
+      manual,
+      experimental: status.preset.experimental === true,
+      installPath: manual ? this.manager.modelDir(status.preset.id) : null,
       default: status.preset.default === true,
       recommended: status.preset.recommended === true,
     }
   }
 
-  /** `POST model/select`：校验可用 → 写设置 → 重建运行时。 */
+  /** `POST model/select`：校验可用 → 写设置 → 加载一次（失败自动回退）。 */
   async selectModel(id: string): Promise<ModelStatePayload> {
     await this.initialize()
     const preset = this.requirePreset(id)
     if (preset.needsExport === true) {
-      throw new ModelServiceError('needs_export', `${preset.name} 没有官方 ONNX，请先用导出脚本生成 assets。`)
+      throw new ModelServiceError('needs_export', `${preset.name} 没有官方 ONNX，请先用导出脚本生成。`)
     }
-    if (!(await this.manager.isDownloaded(preset.id))) {
-      throw new ModelServiceError('not_downloaded', `${preset.name} 尚未下载。`, 409)
+    const integrity = await this.manager.inspectModel(preset.id)
+    if (!integrity.downloaded) {
+      if (preset.manual === true) {
+        throw new ModelServiceError(
+          'manual_install',
+          integrity.error ??
+            `${preset.name} 需要手动安装：把 model.onnx + tokenizer.json + config.json 放到 ` +
+              `${this.manager.modelDir(preset.id)}/`,
+          409,
+        )
+      }
+      throw new ModelServiceError('not_downloaded', integrity.error ?? `${preset.name} 尚未下载。`, 409)
     }
-    // 已经是当前生效模型：不重复 dispose / 加载。
-    if (this.active?.preset.id === preset.id && this.settingsState.activeModelId === preset.id) {
+    if (this.active?.preset.id === preset.id && this.settingsState.activeModelId === preset.id && this.ready === 'ready') {
       return this.getState()
     }
     const nextSettings: PluginSettings = { ...this.settingsState, activeModelId: preset.id }
@@ -311,6 +488,8 @@ export class EmotionModelService {
     else await saveSettings(nextSettings, { baseDir: this.options.baseDir })
     this.settingsState = nextSettings
     await this.refreshRuntime()
+    // H3：选择时真实加载一次；失败自动回退 legacy，并通过 state.runtimeError 暴露。
+    await this.ensureReady()
     return this.getState()
   }
 
@@ -318,7 +497,14 @@ export class EmotionModelService {
   async downloadModel(id: string): Promise<ModelStatePayload> {
     await this.initialize()
     const preset = this.requirePreset(id)
-    // 已下载则不重复下载；needsExport 的下载请求交给 manager 给出明确错误。
+    if (preset.manual === true) {
+      throw new ModelServiceError(
+        'manual_install',
+        `${preset.name} 不支持在线下载：请把 model.onnx + tokenizer.json + config.json 放到 ` +
+          `${this.manager.modelDir(preset.id)}/ 后再选择。`,
+        409,
+      )
+    }
     if (preset.needsExport !== true && (await this.manager.isDownloaded(preset.id))) {
       return this.getState()
     }
@@ -339,7 +525,9 @@ export class EmotionModelService {
     } catch (error) {
       throw this.mapManagerError(error)
     }
-    if (this.active?.preset.id === id) await this.refreshRuntime()
+    if (this.active?.preset.id === id || this.settingsState.activeModelId === id) {
+      await this.refreshRuntime()
+    }
     return this.getState()
   }
 
@@ -348,6 +536,10 @@ export class EmotionModelService {
     this.initialized = false
     this.initPromise = undefined
     this.warnedFallback = false
+    this.ready = 'idle'
+    this.readyPromise = undefined
+    this.runtimeError = null
+    this.settingsState = DEFAULT_SETTINGS
     await this.initialize()
     await this.refreshRuntime()
   }
@@ -359,6 +551,8 @@ export class EmotionModelService {
     this.active = undefined
     this.initialized = false
     this.initPromise = undefined
+    this.ready = 'idle'
+    this.readyPromise = undefined
     if (scorer !== undefined) await scorer.dispose()
   }
 
