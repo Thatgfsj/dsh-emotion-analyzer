@@ -7,7 +7,7 @@
  * 体积/文件大小均来自 Hugging Face HEAD 实测（2026-10-25）：
  * - Horizon small: onnx 268,449,278 B / tokenizer 34,363,286 B / config 3,155 B
  * - Horizon base : onnx 641,205,891 B / tokenizer 34,363,286 B / config 3,156 B
- * - Chinese-Emotion-Small: 无官方 ONNX（needsExport），tokenizer 16,316,379 B
+ * - Chinese-Emotion-Small: 无官方 ONNX（manual/experimental，需手动放置 model.onnx）
  */
 import { RAW_EMOTION_LABELS } from '../mapping.ts'
 import {
@@ -60,6 +60,10 @@ export interface ModelPreset {
   readonly recommended?: boolean
   /** 没有现成 ONNX，需要用脚本导出（不阻塞下载以外的默认流程）。 */
   readonly needsExport?: boolean
+  /** 仅支持手动安装（不能通过下载 API 获取）；与 needsExport 互斥。 */
+  readonly manual?: boolean
+  /** 实验性预设：UI 需标注，不承诺稳定性。 */
+  readonly experimental?: boolean
   readonly urls: ModelPresetUrls
   readonly files: readonly ModelPresetFile[]
   /** legacy 预设的包内资产（相对包根）。 */
@@ -231,19 +235,23 @@ export const MODEL_PRESETS: readonly ModelPreset[] = [
   },
   {
     id: 'zh-johnson-small',
-    name: 'Chinese Emotion（中文）',
+    name: 'Chinese Emotion（中文 · 实验）',
     repo: ZH_REPO,
     license: 'MIT',
     sizeBytes: 0,
     languages: ['zh'],
     labels: ZH_EMOTION_LABELS,
     mappingProfile: 'zh-8',
-    needsExport: true,
+    // #65 方案 C：保留预设但标 manual/experimental，不承诺在线下载。
+    // 用户需自行导出 ONNX，并把 3 个文件放到 $DSH_HOME/emotion-analyzer/models/zh-johnson-small/。
+    manual: true,
+    experimental: true,
     urls: {
       tokenizer: resolveUrl(ZH_REPO, 'tokenizer.json'),
       config: resolveUrl(ZH_REPO, 'config.json'),
     },
     files: [
+      { path: 'model.onnx', role: 'model', sizeBytes: 0 },
       { path: 'tokenizer.json', role: 'tokenizer', url: resolveUrl(ZH_REPO, 'tokenizer.json'), sizeBytes: 16_316_379 },
       { path: 'config.json', role: 'config', url: resolveUrl(ZH_REPO, 'config.json'), sizeBytes: 1_298 },
     ],

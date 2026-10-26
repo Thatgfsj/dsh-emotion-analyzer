@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  MAX_DOUBT,
   detectDoubt,
   detectLanguage,
   extractLastAssistantText,
   hashText,
+  stripCodeAndUrls,
   truncateForScoring,
 } from '../src/text.ts'
 
@@ -53,7 +55,7 @@ test('truncateForScoring respects the character budget', () => {
 
 test('detectDoubt: question and uncertainty sentences produce a signal', () => {
   assert.ok(detectDoubt('这是为什么？') >= 0.5)
-  assert.ok(detectDoubt('你吃了吗') >= 0.4)
+  assert.ok(detectDoubt('你吃了吗') < 0.2)
   assert.ok(detectDoubt('我不太确定接下来该怎么办。') >= 0.5)
   assert.ok(detectDoubt('我有点困惑，能再解释一下吗？') >= 0.5)
   assert.ok(detectDoubt('I am not sure how to proceed.') >= 0.5)
@@ -66,4 +68,20 @@ test('detectDoubt: plain statements and technical prose do not fire', () => {
   assert.equal(detectDoubt('今天天气不错。'), 0)
   assert.equal(detectDoubt('这是一个技术说明，里面会解释如何以及为什么。'), 0)
   assert.equal(detectDoubt(''), 0)
+})
+
+test('detectDoubt: service questions and URLs do not fire (review H1)', () => {
+  assert.equal(detectDoubt('需要我再补充测试吗？'), 0)
+  assert.equal(detectDoubt('要不要我继续？'), 0)
+  assert.equal(detectDoubt('是否需要我解释一下？'), 0)
+  assert.equal(detectDoubt('Do you want me to continue?'), 0)
+  assert.equal(detectDoubt('详见 https://example.com/a?b=c&d=e 。'), 0)
+  assert.ok(detectDoubt('需要我继续吗？我不太确定要不要改动。') >= 0.6)
+})
+
+test('detectDoubt: capped and code/url stripper exists', () => {
+  assert.ok(detectDoubt('不确定。困惑。不明白。为什么？怎么办？') <= MAX_DOUBT)
+  assert.ok(MAX_DOUBT < 1)
+  const stripped = stripCodeAndUrls('见 https://x.test/a?b=1 后继续。')
+  assert.equal(stripped.includes('?'), false)
 })
