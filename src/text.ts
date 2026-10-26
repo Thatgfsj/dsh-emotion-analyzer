@@ -84,49 +84,99 @@ export function truncateForScoring(text: string, maxChars = 4000): string {
   return text.slice(0, maxChars)
 }
 
+/* ------------------------------------------------------------------------- */
+/* doubt heuristic（疑问维度）                                                */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * 去掉 fenced / inline code 与 URL，避免代码里的三目 `?`、`?.`、URL query
+ * 被误当成自然语言疑问（review H1）。
+ * @param text - 原始助手回复。
+ * @returns 只保留自然语言文本的版本（保留标点与换行）。
+ */
+export function stripCodeAndUrls(text: string): string {
+  if (text.length === 0) return ''
+  return text
+    .replace(/```[\s\S]*?```/gu, ' ')
+    .replace(/`[^`\n]*`/gu, ' ')
+    .replace(/(?:https?:\/\/|www\.)[^\s<>"'`，。！？；、）】]+/giu, ' ')
+}
+
+/** 强不确定词：命中即高 doubt。 */
+const UNCERTAIN_ZH = /不太确定|不确定|没把握|不清楚|不明白|不懂|不知道|困惑|疑惑|迷茫|存疑|拿不准|说不准|搞不懂|没搞懂|纠结|疑问|质疑/u
+const UNCERTAIN_EN = /\b(?:not sure|unsure|uncertain|confus(?:ed|ing|ion)?|don'?t know|do not know|doubt|puzzl(?:e|ed|ing))\b/iu
+
+/**
+ * 服务性问句：助手在问“要不要我继续 / 需要我补充吗”，不是情绪上的疑问。
+ * 这类句子即使有问号也不应累计 confused（review H1）。
+ */
+const SERVICE_ZH = /需要我|要不要我|是否需要|需不需要|还需要我|要我|需要再|我帮你|我为你|我继续|帮你|为您/u
+const SERVICE_EN = /\b(?:do you want me to|would you like me to|should i|shall i|need me to|want me to|can i help|shall we)\b/iu
+
+/** 真实疑问词（句首）：只有这些才给高 doubt。 */
+const LEADING_ZH = /^\s*(?:为什么|为何|怎么|怎样|如何|是否|是不是|能不能|可不可以|会不会|有没有|什么|哪|谁|多少|几|请问|难道|咋|怎么办)/u
+const LEADING_EN = /^\s*(?:why|how|what|which|who|whom|whose|where|when)\b/iu
+
+/** 句末语气词：单独出现只给弱信号（低于 mapping THRESHOLD=0.2）。 */
+const END_PARTICLE = /(吗|呢|嘛)[\s。！!?？]*$/u
+
+/** 单个问号：最弱的信号（常见于礼貌性问句，单独不触发 confused）。 */
+const QUESTION_MARK = /[?？]/u
+
+/** doubt 上限：避免多句命中把 confused 直接拉满。 */
+export const MAX_DOUBT = 0.75
+
 /**
  * Heuristic "doubt / uncertainty" signal for the 疑问 dimension.
  *
- * The ONNX model has no confusion/uncertainty label; empirically its
- * `surprise` head fires on real surprise ("真的吗？我没想到！") but NOT on
- * Chinese questions ("这是为什么？" → surprise 0.036). This pure-text signal
- * fills that gap and is combined with `surprise` by the mapping layer.
+ * The ONNX model has no confusion/uncertainty label (legacy/zh profiles;
+ * GoEmotions has confusion but still needs host help for Chinese questions).
+ * This pure-text signal fills that gap and is combined with model labels by
+ * the mapping layer.
  *
- * Rules (per sentence):
- * - question mark `?`/`？` → 0.50
- * - sentence-final question particle 吗/呢/嘛/么 → 0.45
- * - uncertainty / confusion lexicon → 0.50
- * - leading interrogative word (为什么/怎么/how/why/...) → 0.35
- * - two or more hits across sentences → +0.15
+ * 规则（review H1 修正后）：
+ * - 先剥离 fenced/inline code 与 URL；
+ * - 服务性问句（需要我…吗 / 要不要… / should I…）且没有不确定词 → 0；
+ * - 强不确定词 → 0.65；真实疑问词开头 → 0.50；
+ * - 句末「吗/呢/嘛」或裸问号 → 0.18 / 0.15（低于 THRESHOLD，不单独触发）；
+ * - 多句命中 +0.1，最终封顶 {@link MAX_DOUBT}。
  *
  * @param text - visible assistant reply.
  * @returns doubt signal in [0, 1].
  */
 export function detectDoubt(text: string): number {
   if (text.length === 0) return 0
-  const segments = text.match(/[^。！？!?\n]+[。！？!?]?/gu) ?? [text]
-  const questionMark = /[?？]/u
-  // "么" is excluded: it is part of 什么/怎么/为什么/那么, not a standalone particle.
-  const endParticle = /(吗|呢|嘛)[\s。！!?？]*$/u
-  const uncertain = /不太确定|不确定|没把握|不清楚|不明白|不懂|困惑|疑惑|迷茫|存疑|拿不准|说不准|搞不懂|没搞懂|纠结|疑问|质疑/u
-  const leadingZh = /^\s*(为什么|为何|怎么|怎样|如何|是否|是不是|能不能|可不可以|会不会|有没有|要不要|什么|哪|谁|多少|几|请问|难道|咋|怎么办)/u
-  const uncertainEn = /\b(not sure|unsure|uncertain|confus(?:ed|ing|ion)?|don'?t know|do not know|wonder|doubt|clarify|explain|meaning|puzzle)\b/iu
-  const leadingEn = /^\s*(why|how|what|which|who|whom|whose|where|when|can|could|would|should|does|do|did|is|are|was|were|will|shall|may|might)\b/iu
+  const cleaned = stripCodeAndUrls(text)
+  if (cleaned.trim().length === 0) return 0
+
+  const segments = cleaned.match(/[^。！？!?\n]+[。！？!?]?/gu) ?? [cleaned]
   let best = 0
   let hits = 0
   for (const segment of segments) {
     const sentence = segment.trim()
     if (sentence.length === 0) continue
+
+    const hasUncertainty = UNCERTAIN_ZH.test(sentence) || UNCERTAIN_EN.test(sentence)
+    const isServiceQuestion = SERVICE_ZH.test(sentence) || SERVICE_EN.test(sentence)
+    // 服务性问句本身不代表困惑；只有同时出现不确定词才按真疑问计。
+    if (isServiceQuestion && !hasUncertainty) continue
+
     let score = 0
-    if (questionMark.test(sentence)) score = Math.max(score, 0.5)
-    if (endParticle.test(sentence)) score = Math.max(score, 0.45)
-    if (uncertain.test(sentence) || uncertainEn.test(sentence)) score = Math.max(score, 0.5)
-    if (leadingZh.test(sentence) || leadingEn.test(sentence)) score = Math.max(score, 0.35)
+    if (hasUncertainty) score = 0.65
+    else if (LEADING_ZH.test(sentence) || LEADING_EN.test(sentence)) score = 0.5
+    else if (QUESTION_MARK.test(sentence) && /为什么|怎么|怎样|如何|怎么办|什么|哪|谁|多少|是否|难道/u.test(sentence)) {
+      // 疑问词不总在句首（“这是为什么？”），有问号 + 真疑问词仍算高信号。
+      score = 0.5
+    } else if (END_PARTICLE.test(sentence)) score = 0.18
+    else if (QUESTION_MARK.test(sentence)) score = 0.15
+
     if (score > 0) {
       hits += 1
       best = Math.max(best, score)
     }
   }
-  if (hits >= 2) best = Math.min(1, best + 0.15)
-  return best
+
+  // 多句命中只加一点，且不会把弱信号抬过强信号。
+  if (hits >= 2 && best >= 0.5) best = Math.min(MAX_DOUBT, best + 0.1)
+  return Math.min(MAX_DOUBT, best)
 }

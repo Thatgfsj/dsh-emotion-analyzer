@@ -1,0 +1,107 @@
+{
+  "activeModelId": "horizon-small",
+  "fallbackActive": false,
+  "provider": {
+    "type": "local"
+  },
+  "models": [
+    {
+      "id": "horizon-small",
+      "name": "Horizon 多语言情绪 · small",
+      "repo": "Horizon-Labs/multilingual-emotions-small",
+      "license": "Apache-2.0",
+      "sizeBytes": 268449278,
+      "languages": [
+        "en",
+        "zh",
+        "ja"
+      ],
+      "labels": [
+        "admiration",
+        "amusement",
+        "anger"
+      ],
+      "mappingProfile": "go-emotions-28",
+      "downloaded": true,
+      "downloading": false,
+      "progress": {
+        "receivedBytes": 0,
+        "totalBytes": 0,
+        "percent": 0
+      },
+      "error": null,
+      "needsExport": false
+    },
+    {
+      "id": "horizon-base",
+      "name": "Horizon 多语言情绪 · base",
+      "repo": "Horizon-Labs/multilingual-emotions-base",
+      "license": "Apache-2.0",
+      "sizeBytes": 641205891,
+      "languages": [
+        "en",
+        "zh"
+      ],
+      "labels": [
+        "admiration"
+      ],
+      "mappingProfile": "go-emotions-28",
+      "downloaded": false,
+      "downloading": false,
+      "progress": {
+        "receivedBytes": 0,
+        "totalBytes": 0,
+        "percent": 0
+      },
+      "error": null,
+      "needsExport": false
+    },
+    {
+      "id": "legacy-tabularisai",
+      "name": "Tabularis 多语言情绪（legacy）",
+      "repo": "tabularisai/multilingual-emotion-classification",
+      "license": "CC-BY-NC-4.0",
+      "sizeBytes": 278963213,
+      "languages": [
+        "en",
+        "zh"
+      ],
+      "labels": [
+        "joy"
+      ],
+      "mappingProfile": "legacy-11",
+      "downloaded": true,
+      "downloading": false,
+      "progress": {
+        "receivedBytes": 0,
+        "totalBytes": 0,
+        "percent": 0
+      },
+      "error": null,
+      "needsExport": false
+    },
+    {
+      "id": "zh-johnson-small",
+      "name": "Chinese Emotion Small",
+      "repo": "Johnson8187/Chinese-Emotion-Small",
+      "license": "MIT",
+      "sizeBytes": 0,
+      "languages": [
+        "zh"
+      ],
+      "labels": [
+        "LABEL_0"
+      ],
+      "mappingProfile": "zh-8",
+      "downloaded": false,
+      "downloading": false,
+      "progress": {
+        "receivedBytes": 0,
+        "totalBytes": 0,
+        "percent": 0
+      },
+      "error": null,
+      "needsExport": true
+    }
+  ]
+}

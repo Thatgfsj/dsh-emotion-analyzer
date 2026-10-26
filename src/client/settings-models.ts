@@ -111,6 +111,55 @@ export function canSelectPreset(
   return !(state && state.activeModelId === preset.id)
 }
 
+export interface RuntimeSummary {
+  /** Preset the user selected (host activeModelId). */
+  selected: ModelPreset | null
+  /** Preset that is actually loaded (host effectiveModelId / current). */
+  effective: ModelPreset | null
+  effectiveFallback: boolean
+  runtimeError: string | null
+  /** True when the host reports no usable runtime model. */
+  noModel: boolean
+}
+
+/** Issue #62 H5: separate "selected" from "actually effective". */
+export function runtimeSummary(state: ModelState | null | undefined): RuntimeSummary {
+  if (!state) {
+    return { selected: null, effective: null, effectiveFallback: false, runtimeError: null, noModel: false }
+  }
+  const selected =
+    state.presets.find((preset) => preset.id === state.selectedModelId) ?? null
+  const effective =
+    state.current ??
+    state.presets.find((preset) => preset.id === state.effectiveModelId) ??
+    null
+  return {
+    selected,
+    effective,
+    effectiveFallback: state.effectiveFallback,
+    runtimeError: state.runtimeError ?? null,
+    noModel: effective === null,
+  }
+}
+
+/** Issue #60: show explicit setup guidance instead of waiting silently. */
+export function needsModelSetup(state: ModelState | null | undefined): boolean {
+  if (!state) return false
+  const summary = runtimeSummary(state)
+  return summary.noModel || summary.runtimeError !== null
+}
+
+/** Default Horizon Small preset used by the one-click setup CTA. */
+export function defaultDownloadPreset(state: ModelState | null | undefined): ModelPreset | null {
+  if (!state) return null
+  return (
+    state.presets.find((preset) => preset.default) ??
+    state.presets.find((preset) => preset.id === 'horizon-small') ??
+    state.presets.find((preset) => preset.downloadable && !preset.needsExport) ??
+    null
+  )
+}
+
 /** Rows for the /test result bars, ordered by the 7 unified dimensions. */
 export function scoreRows(scores: Record<string, number> | null | undefined): ModelDisplayRow[] {
   const source = scores ?? {}
@@ -350,6 +399,11 @@ export function createSettingsModels(
       try {
         const next = await action()
         setState(next)
+        try {
+          window.dispatchEvent(new CustomEvent('emotion-analyzer-model-changed'))
+        } catch {
+          // non-browser harnesses
+        }
         if (key.startsWith('download:')) {
           // The 202 body can race the manager's first progress update; pull
           // once more shortly after so the progress bar starts even when the
@@ -383,13 +437,16 @@ export function createSettingsModels(
       }
     }
 
-    const current = state ? state.current : null
     const presets: ModelPreset[] = state && Array.isArray(state.presets) ? state.presets : []
     const actionBusy = busy !== null
+    const summary = runtimeSummary(state)
+    const setupNeeded = needsModelSetup(state)
+    const defaultPreset = defaultDownloadPreset(state)
 
     const renderPreset = (preset: ModelPreset): any => {
       const action = presetAction(preset, state, actionBusy)
-      const selected = Boolean(state && state.activeModelId === preset.id)
+      const selected = Boolean(state && state.selectedModelId === preset.id)
+      const effective = Boolean(state && state.effectiveModelId === preset.id)
       const isDownloading = Boolean(activeDownload && activeDownload.id === preset.id)
       const percent = isDownloading && activeDownload ? downloadPercent(activeDownload) : 0
       const failedHere = Boolean(
@@ -436,7 +493,8 @@ export function createSettingsModels(
                     badge,
                   ),
                 ),
-                selected ? React.createElement('span', { style: styles.badgeAccent }, '当前使用') : null,
+                selected ? React.createElement('span', { style: styles.badgeAccent }, '已选择') : null,
+                effective ? React.createElement('span', { style: styles.badge }, '实际生效') : null,
               ),
               React.createElement('span', { style: styles.meta }, formatModelMeta(preset)),
               preset.description ? React.createElement('span', { style: styles.meta }, preset.description) : null,
@@ -543,9 +601,9 @@ export function createSettingsModels(
         React.createElement(
           'div',
           { key: 'mock', style: styles.info },
-          '演示模式：宿主模型 API（/api/emotion-analyzer/v1/state）尚未就绪',
+          '演示模式：已通过 ?emotionModelMock=1 显式启用',
           state.mockReason ? '（' + state.mockReason + '）' : '',
-          '。以下为演示数据，下载与测试均在本页模拟。',
+          '。以下数据仅用于界面演示，不代表真实下载或推理成功。',
         ),
       )
     }
@@ -562,33 +620,96 @@ export function createSettingsModels(
       )
     }
 
+    if (setupNeeded && state) {
+      children.push(
+        React.createElement(
+          'div',
+          { key: 'setup', style: styles.info, role: 'status' },
+          React.createElement('div', { style: styles.modelName }, '没有可用的情绪模型'),
+          React.createElement(
+            'p',
+            { style: styles.warning },
+            '下载完成前，主模型的回复不会被打分，悬浮框只会显示等待状态。',
+          ),
+          defaultPreset
+            ? React.createElement(
+                'div',
+                { style: styles.row },
+                React.createElement(
+                  'button',
+                  {
+                    type: 'button',
+                    style: actionBusy ? { ...styles.primaryButton, ...styles.disabledButton } : styles.primaryButton,
+                    disabled: actionBusy,
+                    onClick: () => {
+                      void runAction('download:default', () => client.downloadModel(defaultPreset.id))
+                    },
+                  },
+                  '一键下载默认模型 ' + defaultPreset.name,
+                ),
+                summary.selected && !summary.selected.installed && summary.selected.id !== defaultPreset.id
+                  ? React.createElement(
+                      'button',
+                      {
+                        type: 'button',
+                        style: actionBusy ? { ...styles.button, ...styles.disabledButton } : styles.button,
+                        disabled: actionBusy,
+                        onClick: () => {
+                          void runAction('download:' + summary.selected!.id, () =>
+                            client.downloadModel(summary.selected!.id),
+                          )
+                        },
+                      },
+                      '改为下载已选择的 ' + summary.selected.name,
+                    )
+                  : null,
+              )
+            : React.createElement('p', { style: styles.warning }, '宿主没有返回预设模型；请检查插件后端日志后重试。'),
+        ),
+      )
+    }
+
     children.push(
       React.createElement(
         'div',
         { key: 'current', style: styles.card },
+        React.createElement('span', { style: styles.modelName }, '模型状态'),
         React.createElement(
           'div',
-          { style: styles.row },
-          React.createElement('span', { style: styles.modelName }, '当前模型'),
-          current && current.legacy ? React.createElement('span', { style: styles.badge }, 'legacy') : null,
-          current && current.fallback ? React.createElement('span', { style: styles.badge }, '兼容回退') : null,
+          { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+          React.createElement(
+            'span',
+            { style: styles.meta },
+            '已选择：' + (summary.selected ? summary.selected.name : (state && state.selectedModelId) ?? '—') +
+              (summary.selected && !summary.selected.installed ? '（未下载）' : ''),
+          ),
+          React.createElement(
+            'span',
+            { style: styles.meta },
+            '实际生效：' + (summary.effective ? summary.effective.name : '无可用模型'),
+          ),
+          summary.effectiveFallback
+            ? React.createElement('p', { style: styles.warning }, '已选择的模型不可用，当前自动回退到兼容模型。')
+            : null,
+          summary.selected && summary.effective && summary.selected.id !== summary.effective.id
+            ? React.createElement(
+                'p',
+                { style: styles.warning },
+                '已选择 ' + summary.selected.name + '，但实际运行的是 ' + summary.effective.name + '。',
+              )
+            : null,
+          summary.runtimeError
+            ? React.createElement('div', { style: styles.alert, role: 'alert' }, '运行时错误：' + summary.runtimeError)
+            : null,
         ),
-        current
+        summary.effective
           ? React.createElement(
               'div',
               { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
-              React.createElement('span', { style: styles.modelName }, current.name),
-              React.createElement('span', { style: styles.meta }, formatModelMeta(current)),
-              React.createElement('span', { style: styles.meta }, 'ID: ' + current.id + (current.profile ? ' · profile: ' + current.profile : '')),
-              current.fallback
-                ? React.createElement(
-                    'p',
-                    { style: styles.warning },
-                    '当前使用兼容回退模型；如果新模型不可用，插件仍可继续计分。',
-                  )
-                : null,
+              React.createElement('span', { style: styles.meta }, '生效模型 ID: ' + summary.effective.id + (summary.effective.profile ? ' · profile: ' + summary.effective.profile : '')),
+              React.createElement('span', { style: styles.meta }, formatModelMeta(summary.effective)),
             )
-          : React.createElement('span', { style: styles.meta }, '尚未检测到可用模型。'),
+          : null,
       ),
     )
 

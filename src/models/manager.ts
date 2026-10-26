@@ -42,7 +42,17 @@ export interface ModelStatus {
   readonly downloading: boolean
   readonly progress: DownloadProgress
   readonly error?: string
+  /** 失败分类（`size_mismatch` / `incomplete` / `download_failed` …）。 */
+  readonly errorCode?: string
   readonly needsExport: boolean
+}
+
+/** 本地文件完整性检查结果（下载 / 选择 / 初始化共用）。 */
+export interface ModelIntegrity {
+  readonly downloaded: boolean
+  /** 已存在但损坏 / 不完整时的可读原因；单纯“没下载”不算错误。 */
+  readonly error?: string
+  readonly errorCode?: string
 }
 
 /** 带有稳定错误码的模型管理错误。 */
@@ -124,29 +134,66 @@ export class ModelManager {
     return existsSync(fileURLToPath(legacy.local.model)) && existsSync(fileURLToPath(legacy.local.tokenizer))
   }
 
-  /** 文件是否已完整下载（大小已知时同时校验大小）。 */
-  private async fileReady(preset: ModelPreset, path: string, expected: number | undefined): Promise<boolean> {
-    const file = filePathOf(this.modelDir(preset.id), path)
+  /** 文件大小；不存在 / 非普通文件返回 undefined。 */
+  private async sizeOf(file: string): Promise<number | undefined> {
     try {
       const info = await stat(file)
-      if (!info.isFile() || info.size <= 0) return false
-      if (expected !== undefined && expected > 0 && info.size !== expected) return false
-      return true
+      if (!info.isFile() || info.size <= 0) return undefined
+      return info.size
     } catch {
-      return false
+      return undefined
     }
   }
 
-  /** 模型是否已下载完成。 */
-  async isDownloaded(id: string): Promise<boolean> {
+  /**
+   * 检查模型文件是否完整（存在 + 非空 + 已知大小一致）。
+   *
+   * - 下载模型：严格校验注册表里的字节数；
+   * - manual 模型（中文 zh）：要求 model.onnx / tokenizer.json / config.json
+   *   都存在且非空，但不强制 tokenizer/config 的精确大小（用户可能重新导出）；
+   * - legacy：只看包内 assets 是否存在（重新导出后大小可能变化）。
+   */
+  async inspectModel(id: string): Promise<ModelIntegrity> {
     const preset = this.presetOf(id)
-    if (preset.id === LEGACY_MODEL_ID) return this.legacyAvailable()
-    if (preset.needsExport === true) return false
-    if (preset.files.length === 0) return false
-    for (const file of preset.files) {
-      if (!(await this.fileReady(preset, file.path, file.sizeBytes))) return false
+    if (preset.id === LEGACY_MODEL_ID) {
+      return this.legacyAvailable() ? { downloaded: true } : { downloaded: false }
     }
-    return true
+    if (preset.needsExport === true) return { downloaded: false }
+    if (preset.files.length === 0) return { downloaded: false }
+
+    const modelDir = this.modelDir(id)
+    const missing: string[] = []
+    let present = 0
+    for (const file of preset.files) {
+      const size = await this.sizeOf(filePathOf(modelDir, file.path))
+      if (size === undefined) {
+        missing.push(file.path)
+        continue
+      }
+      present += 1
+      // manual 模型只要求非空（用户可能自行导出 tokenizer/config）。
+      const strict = preset.manual !== true && file.sizeBytes !== undefined && file.sizeBytes > 0
+      if (strict && size !== file.sizeBytes) {
+        return {
+          downloaded: false,
+          error: `模型文件损坏：${file.path} 大小不匹配（期望 ${file.sizeBytes} B，实际 ${size} B）`,
+          errorCode: 'size_mismatch',
+        }
+      }
+    }
+    if (missing.length === 0) return { downloaded: true }
+    if (present > 0) {
+      const instruction = preset.manual === true
+        ? `手动安装不完整：缺少 ${missing.join('、')}。请把 model.onnx + tokenizer.json + config.json 放到 ${modelDir}/`
+        : `下载不完整：缺少 ${missing.join('、')}`
+      return { downloaded: false, error: instruction, errorCode: 'incomplete' }
+    }
+    return { downloaded: false }
+  }
+
+  /** 模型是否已下载完成（含完整性检查）。 */
+  async isDownloaded(id: string): Promise<boolean> {
+    return (await this.inspectModel(id)).downloaded
   }
 
   /** 当前下载状态（没有状态时返回 idle）。 */
@@ -154,20 +201,10 @@ export class ModelManager {
     return this.states.get(id) ?? { state: 'idle', progress: EMPTY_PROGRESS }
   }
 
-  /** 列出所有模型状态（含下载进度 / 错误 / needsExport）。 */
+  /** 列出所有模型状态（含下载进度 / 完整性错误 / needsExport）。 */
   async listStatuses(): Promise<ModelStatus[]> {
     const statuses: ModelStatus[] = []
-    for (const preset of this.presets) {
-      const download = this.stateOf(preset.id)
-      statuses.push({
-        preset,
-        downloaded: await this.isDownloaded(preset.id),
-        downloading: download.state === 'downloading',
-        progress: download.progress,
-        ...(download.error === undefined ? {} : { error: download.error }),
-        needsExport: preset.needsExport === true,
-      })
-    }
+    for (const preset of this.presets) statuses.push(await this.statusOf(preset.id))
     return statuses
   }
 
@@ -175,12 +212,19 @@ export class ModelManager {
   async statusOf(id: string): Promise<ModelStatus> {
     const preset = this.presetOf(id)
     const download = this.stateOf(id)
+    const integrity = await this.inspectModel(id)
+    // 完整性错误优先于上一次下载错误；已下载时忽略历史下载错误。
+    const error = integrity.downloaded ? undefined : (integrity.error ?? download.error)
+    const errorCode = integrity.downloaded
+      ? undefined
+      : (integrity.errorCode ?? (download.state === 'error' ? download.errorCode : undefined))
     return {
       preset,
-      downloaded: await this.isDownloaded(id),
+      downloaded: integrity.downloaded,
       downloading: download.state === 'downloading',
       progress: download.progress,
-      ...(download.error === undefined ? {} : { error: download.error }),
+      ...(error === undefined ? {} : { error }),
+      ...(errorCode === undefined ? {} : { errorCode }),
       needsExport: preset.needsExport === true,
     }
   }
@@ -191,6 +235,13 @@ export class ModelManager {
    */
   startDownload(id: string): ModelStatus {
     const preset = this.presetOf(id)
+    if (preset.manual === true) {
+      throw new ModelManagerError(
+        'manual_install',
+        `${preset.name} 需要手动安装：把 model.onnx + tokenizer.json + config.json 放到 ` +
+          `${this.modelDir(preset.id)}/ 后再在设置页选择。`,
+      )
+    }
     if (preset.needsExport === true) {
       throw new ModelManagerError('needs_export', `${preset.name} 没有官方 ONNX，请先用导出脚本生成 assets 再切换。`)
     }
@@ -291,6 +342,14 @@ export class ModelManager {
         receivedBytes += bytes
         updateProgress()
       })
+    }
+    // 下载完成后做一次整体完整性校验（坏文件不能进入 downloaded 状态）。
+    const integrity = await this.inspectModel(preset.id)
+    if (!integrity.downloaded) {
+      throw new ModelManagerError(
+        integrity.errorCode ?? 'integrity_failed',
+        integrity.error ?? '下载完成但完整性校验失败。',
+      )
     }
     this.updateState(preset.id, generation, {
       state: 'done',

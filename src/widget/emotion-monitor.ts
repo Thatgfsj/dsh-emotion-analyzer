@@ -9,6 +9,7 @@
  * Importing this module registers the default <emotion-monitor> tag as a side
  * effect (idempotent, see defineEmotionMonitor).
  */
+import { getModelApi } from '../client/model-api.ts'
 import { drawSparkline } from './sparkline.js'
 import { WIDGET_STYLES } from './styles.js'
 import {
@@ -28,6 +29,7 @@ import {
   exceedsDragThreshold,
   formatLatency,
   formatTurn,
+  hasMeaningfulScores,
   languageLabel,
   normalizeScore,
   normalizeState,
@@ -113,6 +115,12 @@ const TEMPLATE = `
       <span class="waiting-dot" aria-hidden="true"></span>
       <span>等待第一条回复…</span>
     </div>
+    <div class="no-model" part="no-model">
+      <p class="no-model-title">尚未安装情绪模型</p>
+      <p class="no-model-text">首次使用需要下载默认模型 Horizon Small（约 256 MiB，Apache-2.0）；下载完成后自动启用。</p>
+      <button class="no-model-button" type="button">下载默认模型</button>
+      <span class="no-model-status" role="status" aria-live="polite"></span>
+    </div>
     <div class="scores" part="scores" role="list" aria-label="本回合情绪分数"></div>
     <section class="trend" part="trend" aria-label="会话趋势：最近 30 轮">
       <div class="trend-head"><span>会话趋势</span><span class="trend-hint">最近 30 轮</span></div>
@@ -153,6 +161,8 @@ export class EmotionMonitorElement extends HTMLElement {
   private readonly turnEl: HTMLSpanElement
   private readonly langEl: HTMLSpanElement
   private readonly latencyEl: HTMLSpanElement
+  private readonly noModelButton: HTMLButtonElement
+  private readonly noModelStatus: HTMLSpanElement
   private readonly scoreRows = new Map<EmotionDimension, ScoreRow>()
 
   private state: EmotionMonitorState = emptyState()
@@ -167,6 +177,11 @@ export class EmotionMonitorElement extends HTMLElement {
   private mediaQuery: MediaQueryList | null = null
   private restored = false
   private listening = false
+  private modelAvailable: boolean | null = null
+
+  private readonly handleModelChanged = (): void => {
+    void this.refreshModelAvailability()
+  }
 
   private readonly handleWindowResize = (): void => {
     this.clampCurrentPosition(false)
@@ -191,6 +206,8 @@ export class EmotionMonitorElement extends HTMLElement {
     this.turnEl = requireElement<HTMLSpanElement>(this.shadow, '.meta .turn')
     this.langEl = requireElement<HTMLSpanElement>(this.shadow, '.meta .lang')
     this.latencyEl = requireElement<HTMLSpanElement>(this.shadow, '.meta .latency')
+    this.noModelButton = requireElement<HTMLButtonElement>(this.shadow, '.no-model-button')
+    this.noModelStatus = requireElement<HTMLSpanElement>(this.shadow, '.no-model-status')
     this.buildScoreRows()
     this.bindEvents()
     // NOTE: a custom element constructor must not add attributes or children to
@@ -212,6 +229,7 @@ export class EmotionMonitorElement extends HTMLElement {
     if (!this.listening) {
       this.listening = true
       window.addEventListener('resize', this.handleWindowResize)
+      window.addEventListener('emotion-analyzer-model-changed', this.handleModelChanged)
       if (typeof window.matchMedia === 'function') {
         this.mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
         this.mediaQuery.addEventListener('change', this.handleSchemeChange)
@@ -219,6 +237,7 @@ export class EmotionMonitorElement extends HTMLElement {
     }
     this.applyClosed()
     this.renderState(this.state)
+    void this.refreshModelAvailability()
     requestAnimationFrame(() => this.clampCurrentPosition(false))
   }
 
@@ -226,6 +245,7 @@ export class EmotionMonitorElement extends HTMLElement {
     if (this.listening) {
       this.listening = false
       window.removeEventListener('resize', this.handleWindowResize)
+      window.removeEventListener('emotion-analyzer-model-changed', this.handleModelChanged)
       if (this.mediaQuery) {
         this.mediaQuery.removeEventListener('change', this.handleSchemeChange)
         this.mediaQuery = null
@@ -248,8 +268,18 @@ export class EmotionMonitorElement extends HTMLElement {
 
   /** Coalesced state update from the host. Safe to call before connect. */
   update(data: EmotionMonitorStateInput | null | undefined): void {
-    const hostProvidedTrend = Array.isArray(data?.trend)
+    if (data === null || data === undefined) {
+      this.reset()
+      return
+    }
+    const hostProvidedTrend = Array.isArray(data.trend)
     const next = normalizeState(data)
+    // Issue #62 H6: an empty projection is not real data — do not flip to the
+    // score view or overwrite the localStorage trend.
+    if (!hasMeaningfulScores(next.turn, next.scores)) {
+      this.reset()
+      return
+    }
     if (!hostProvidedTrend) {
       if (next.turn > 0 && next.turn < this.state.turn) {
         next.trend = [{ scores: next.scores }]
@@ -264,6 +294,16 @@ export class EmotionMonitorElement extends HTMLElement {
     this.state = next
     this.hasData = true
     storageSet(STORAGE_KEYS.trend, serializeTrend(next.trend))
+    this.scheduleRender()
+  }
+
+  /**
+   * Issue #62 H6/H7: clear the current projection without touching storage.
+   * Used when the host publishes no data (empty projection / session switch).
+   */
+  reset(): void {
+    this.state = emptyState()
+    this.hasData = false
     this.scheduleRender()
   }
 
@@ -368,6 +408,9 @@ export class EmotionMonitorElement extends HTMLElement {
   private bindEvents(): void {
     const collapseButton = requireElement<HTMLButtonElement>(this.shadow, '[data-action="collapse"]')
     collapseButton.addEventListener('click', () => this.setCollapsed(true, true))
+    this.noModelButton.addEventListener('click', () => {
+      void this.downloadDefaultModel()
+    })
 
     // Issue #34: the compact badge is itself draggable; a gesture that moves
     // more than DRAG_THRESHOLD px is a drag and must not expand the panel.
@@ -419,6 +462,56 @@ export class EmotionMonitorElement extends HTMLElement {
     const position = parsePosition(storageGet(STORAGE_KEYS.position), fallback)
     this.applyView(this.view)
     this.placeAt(position, false)
+  }
+
+  /**
+   * Issue #60: if the host reports no usable model, show an explicit download
+   * CTA instead of silently waiting for scores. Demo pages (file://) are
+   * skipped because they have no host API by design.
+   */
+  private async refreshModelAvailability(): Promise<void> {
+    if (typeof window === 'undefined' || window.location.protocol === 'file:') return
+    try {
+      const state = await getModelApi().getState()
+      this.setModelAvailability(Boolean(state.effectiveModelId) && !state.runtimeError)
+    } catch {
+      // Host API unavailable/unauthorized: keep the normal waiting state; the
+      // settings page surfaces the API error.
+      this.modelAvailable = null
+      this.removeAttribute('data-model')
+    }
+  }
+
+  private setModelAvailability(available: boolean): void {
+    this.modelAvailable = available
+    if (available) this.setAttribute('data-model', 'available')
+    else this.setAttribute('data-model', 'unavailable')
+    if (available) {
+      this.noModelStatus.textContent = ''
+      this.noModelButton.disabled = false
+    }
+  }
+
+  private async downloadDefaultModel(): Promise<void> {
+    this.noModelButton.disabled = true
+    this.noModelStatus.textContent = '正在读取模型列表…'
+    try {
+      const client = getModelApi()
+      const state = await client.getState()
+      const preset =
+        state.presets.find((entry) => entry.default) ??
+        state.presets.find((entry) => entry.id === 'horizon-small') ??
+        state.presets.find((entry) => entry.downloadable && !entry.needsExport)
+      if (preset === undefined) throw new Error('宿主未返回可下载的默认模型')
+      await client.downloadModel(preset.id)
+      this.noModelStatus.textContent = '已开始下载 ' + preset.name + '，完成后会自动启用。'
+      window.setTimeout(() => {
+        void this.refreshModelAvailability()
+      }, 5000)
+    } catch (error) {
+      this.noModelStatus.textContent = '下载失败：' + (error instanceof Error ? error.message : String(error))
+      this.noModelButton.disabled = false
+    }
   }
 
   private defaultPosition(): Point {

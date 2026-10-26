@@ -364,6 +364,59 @@ export const WIDGET_STYLES = `
   display: none;
 }
 
+/* Issue #60: explicit no-model guidance instead of silently waiting. */
+.no-model {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 2px;
+}
+
+:host([data-model='unavailable']) .no-model {
+  display: flex;
+}
+
+:host([data-model='unavailable']) .waiting {
+  display: none;
+}
+
+.no-model-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--em-text);
+}
+
+.no-model-text {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--em-text-secondary);
+}
+
+.no-model-button {
+  align-self: flex-start;
+  border: 1px solid var(--dsw-alias-brand-primary, #4f7cff);
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: var(--dsw-alias-brand-primary, #4f7cff);
+  color: #fff;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.no-model-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.no-model-status {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--em-text-muted);
+}
+
 /* ------------------------------------------------------------------ */
 /* Meta line                                                           */
 /* ------------------------------------------------------------------ */

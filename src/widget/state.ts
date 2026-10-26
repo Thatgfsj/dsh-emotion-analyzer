@@ -414,6 +414,22 @@ export function badgeGlow(dimension: EmotionDimension, intensity: number): strin
   return rgba(meta.rgb, 0.32 + 0.4 * level)
 }
 
+/**
+ * Issue #62 H6: a projection only counts as real data when it belongs to a
+ * positive turn and carries at least one positive score. Empty projections
+ * (turn 0 / all-zero) must keep the widget on the waiting state.
+ */
+export function hasMeaningfulScores(
+  turn: number,
+  scores: Record<string, number> | null | undefined,
+): boolean {
+  if (!Number.isFinite(turn) || turn <= 0) return false
+  if (!scores || typeof scores !== 'object') return false
+  return Object.values(scores).some(
+    (value) => typeof value === 'number' && Number.isFinite(value) && value > 0,
+  )
+}
+
 /** Empty state rendered before the first host update. */
 export function emptyState(): EmotionMonitorState {
   return {

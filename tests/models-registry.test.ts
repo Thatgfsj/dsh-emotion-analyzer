@@ -67,16 +67,19 @@ test('legacy 预设使用包内 assets、11 标签、不允许下载', () => {
   assert.match(legacy.local.tokenizer.href, /assets\/tokenizer\.json$/)
 })
 
-test('zh-johnson-small 标记 needsExport 且没有 model URL', () => {
+test('zh-johnson-small 标记 manual/experimental 且没有 model URL', () => {
   const zh = getModelPreset('zh-johnson-small')
   assert.ok(zh)
-  assert.equal(zh.needsExport, true)
+  assert.equal(zh.manual, true)
+  assert.equal(zh.experimental, true)
+  assert.equal(zh.needsExport, undefined)
   assert.equal(zh.license, 'MIT')
   assert.equal(zh.sizeBytes, 0)
   assert.deepEqual(zh.labels, [...ZH_EMOTION_LABELS])
   assert.equal(zh.urls.model, undefined)
   assert.ok(zh.urls.tokenizer)
   assert.ok(zh.urls.config)
+  assert.equal(zh.files.some((file) => file.path === 'model.onnx' && file.role === 'model'), true)
 })
 
 test('getModelPreset / isModelPresetId 边界', () => {

@@ -9,13 +9,13 @@
 | `horizon-small`（**默认**） | [Horizon-Labs/multilingual-emotions-small](https://huggingface.co/Horizon-Labs/multilingual-emotions-small) | Apache-2.0 | 268,449,278 B（约 256 MiB） | 36 | 28（GoEmotions） | `go-emotions-28` | 官方 INT8 ONNX，可下载 |
 | `horizon-base`（**推荐**） | [Horizon-Labs/multilingual-emotions-base](https://huggingface.co/Horizon-Labs/multilingual-emotions-base) | Apache-2.0 | 641,205,891 B（约 612 MiB） | 36 | 28 | `go-emotions-28` | 官方 INT8 ONNX，可下载 |
 | `legacy-tabularisai`（**回退默认**） | [tabularisai/multilingual-emotion-classification](https://huggingface.co/tabularisai/multilingual-emotion-classification) | **CC-BY-NC-4.0**（非商业） | 278,963,213 B | 23 | 11 | `legacy-11` | 包内 `assets/`，回退资产，**不可删除** |
-| `zh-johnson-small`（**中文**，需本地导出；建议大肥鱼帮助） | [Johnson8187/Chinese-Emotion-Small](https://huggingface.co/Johnson8187/Chinese-Emotion-Small) | MIT | 待导出（0 表示未知） | zh | 8（LABEL_0..7） | `zh-8` | **needsExport**：无官方 ONNX，下载 API 明确报错；等导出脚本落地 |
+| `zh-johnson-small`（**中文**，manual/experimental） | [Johnson8187/Chinese-Emotion-Small](https://huggingface.co/Johnson8187/Chinese-Emotion-Small) | MIT | 手动放置（0 表示未知） | zh | 8（LABEL_0..7） | `zh-8` | **manual**：不提供在线下载；手动放置 `model.onnx`+`tokenizer.json`+`config.json` |
 
 下载 URL 固定为 Hugging Face `resolve/main`：
 
 - `horizon-small`: `https://huggingface.co/Horizon-Labs/multilingual-emotions-small/resolve/main/onnx/model_quantized.onnx` + `tokenizer.json` + `config.json`
 - `horizon-base`: 同一路径规则，仓库换为 `Horizon-Labs/multilingual-emotions-base`
-- `zh-johnson-small`: 只有 `tokenizer.json` / `config.json`；需要本地用 transformers 导出 ONNX（脚本待补）。
+- `zh-johnson-small`: 无官方 ONNX；需要本地导出 `model.onnx`，与 `tokenizer.json` / `config.json` 一起放到 `$DSH_HOME/emotion-analyzer/models/zh-johnson-small/`（tokenizer/config 可从 HF 下载）。
 
 体积来自 2026-10-25 HEAD 实测（`content-length` / `x-linked-size`）；`sizeBytes` 展示模型文件本身，tokenizer/config 在下载时单独校验。
 
@@ -102,7 +102,7 @@ $DSH_HOME/emotion-analyzer/                 # DSH_HOME 未设置时回退 ~/.dsh
 | LABEL_6 | 惊奇 | confused |
 | LABEL_7 | 厌恶 | unwell |
 
-`doubt` 同样并入 confused。该预设当前 **needsExport**：需要先用导出脚本生成 ONNX（deberta-v2 tokenizer），下载/选择 API 都会返回 `needs_export`，不影响默认流程。
+`doubt` 同样并入 confused。该预设当前 **manual/experimental**：不提供在线下载；用户自行导出 `model.onnx`（deberta-v2 tokenizer）并与 tokenizer/config 一起放入 `$DSH_HOME/emotion-analyzer/models/zh-johnson-small/` 后即可在设置页选择。
 
 ## 6. Host API（`/api/emotion-analyzer/v1`）
 

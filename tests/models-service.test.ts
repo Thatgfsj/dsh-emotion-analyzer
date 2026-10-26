@@ -17,8 +17,17 @@ import type { PluginSettings } from '../src/settings.ts'
 /** 假 manager：只实现 service 用到的接口。 */
 class FakeManager {
   readonly downloaded = new Set<string>()
+  readonly integrityErrors = new Map<string, string>()
   legacy = false
   readonly deleted: string[] = []
+  readonly startedDownloads: string[] = []
+
+  async inspectModel(id: string): Promise<{ downloaded: boolean; error?: string; errorCode?: string }> {
+    const integrity = this.integrityErrors.get(id)
+    if (integrity !== undefined) return { downloaded: false, error: integrity, errorCode: 'size_mismatch' }
+    if (id === 'legacy-tabularisai') return { downloaded: this.legacy }
+    return { downloaded: this.downloaded.has(id) }
+  }
 
   isDownloaded(id: string): boolean {
     if (id === 'legacy-tabularisai') return this.legacy
@@ -34,25 +43,27 @@ class FakeManager {
   }
 
   async listStatuses(): Promise<ModelStatus[]> {
-    return MODEL_PRESETS.map((preset) => ({
-      preset,
-      downloaded: preset.id === 'legacy-tabularisai' ? this.legacy : this.downloaded.has(preset.id),
-      downloading: false,
-      progress: { receivedBytes: 0, totalBytes: preset.sizeBytes, percent: 0 },
-      ...(preset.id === 'horizon-small' ? { error: null as never } : {}),
-      needsExport: preset.needsExport === true,
-    })).map((status) => {
-      const { error, ...rest } = status as ModelStatus & { error?: never }
-      void error
-      return rest as ModelStatus
-    })
+    return Promise.all(
+      MODEL_PRESETS.map(async (preset) => {
+        const integrity = await this.inspectModel(preset.id)
+        return {
+          preset,
+          downloaded: integrity.downloaded,
+          downloading: false,
+          progress: { receivedBytes: 0, totalBytes: preset.sizeBytes, percent: 0 },
+          ...(integrity.error === undefined ? {} : { error: integrity.error }),
+          ...(integrity.errorCode === undefined ? {} : { errorCode: integrity.errorCode }),
+          needsExport: preset.needsExport === true,
+        } satisfies ModelStatus
+      }),
+    )
   }
 
   startDownload(id: string): void {
     const preset = getModelPreset(id)
-    if (preset?.needsExport === true) {
-      throw new ModelManagerError('needs_export', 'needs export')
-    }
+    if (preset?.manual === true) throw new ModelManagerError('manual_install', 'manual install')
+    if (preset?.needsExport === true) throw new ModelManagerError('needs_export', 'needs export')
+    this.startedDownloads.push(id)
     this.downloaded.add(id)
   }
 
@@ -195,7 +206,7 @@ test('select 未下载 / needsExport / 未知模型分别报错', async () => {
   })
   await assert.rejects(() => service.selectModel('zh-johnson-small'), (error: unknown) => {
     assert.ok(error instanceof ModelServiceError)
-    assert.equal(error.code, 'needs_export')
+    assert.equal(error.code, 'manual_install')
     return true
   })
   await assert.rejects(() => service.selectModel('nope'), (error: unknown) => {
@@ -228,7 +239,7 @@ test('download：needsExport / 未知模型错误映射；成功启动下载', a
   await service.initialize()
   await assert.rejects(() => service.downloadModel('zh-johnson-small'), (error: unknown) => {
     assert.ok(error instanceof ModelServiceError)
-    assert.equal(error.code, 'needs_export')
+    assert.equal(error.code, 'manual_install')
     assert.equal(error.status, 409)
     return true
   })
@@ -257,7 +268,7 @@ test('state payload 形状：4 个模型 + provider + 必需字段', async () =>
     }
     assert.equal(typeof model.progress.percent, 'number')
   }
-  assert.equal(state.models.find((model) => model.id === 'zh-johnson-small')?.needsExport, true)
+  assert.equal(state.models.find((model) => model.id === 'zh-johnson-small')?.manual, true)
 })
 
 test('reload 重新读取设置并重建运行时', async () => {

@@ -15,7 +15,7 @@
 
 ## 功能
 
-- **本地推理，零第三方模型 API**：v0.2 默认 **Horizon-Labs/multilingual-emotions-small**（GoEmotions 28 标签、36 语言、Apache-2.0、官方 INT8，约 256 MiB）；legacy tabularisai（11 标签）保留为回退资产。ONNX 全本地 CPU 推理，不联网、不额外消耗主模型 Token。
+- **本地推理，零第三方模型 API**：默认 **Horizon-Labs/multilingual-emotions-small**（GoEmotions 28 标签、36 语言、Apache-2.0、官方 INT8，约 256 MiB）；legacy tabularisai（11 标签）保留为回退资产。ONNX 全本地 CPU 推理，**推理阶段不联网**、不额外消耗主模型 Token；仅“下载模型”时访问 HuggingFace。
 - **多语言**：默认模型覆盖 36 种语言；中文 / 英文按 CJK 占比显示语言标识。
 - **可插拔映射 profile**：模型标签 → 7 个统一维度（**愉快 pleasant** / 悲伤 / 愤怒 / 焦虑 / **反感 unwell** / **疑问 confused** / 平静）。内置 `legacy-11`、`go-emotions-28`、`zh-8` 三套 profile；阈值过滤 + 衰减 + 步长 + 封顶，参数集中在 `src/mapping.ts`。详见 [模型与映射](docs/models.md)。
 - **Session projection**：每轮分数以 `plugin:emotion-analyzer/turn`（ignorable）写入会话日志，由 `emotion` projection 单元纯同步 fold；重启、fork 自动恢复。
@@ -43,6 +43,12 @@ agent/turn-stopping { agent, turn, signal }      ← 真实事件名（不是 tu
 
 ```sh
 dsh plugin --profile web add /path/to/dsh-emotion-analyzer
+
+# 必做：验证插件真的进了 profile 的 bundle 层
+bash scripts/check-install.sh web
+# 输出 OK 才算安装成功；若提示 bundle missing：
+#   dsh plugin --profile web remove dsh-emotion-analyzer
+#   dsh plugin --profile web add .
 ```
 
 装好后默认尝试使用 `horizon-small`；如果模型尚未下载，会自动回退到 `assets/` 里的 legacy 模型（需按 [模型导出与量化](docs/model-export.md) 生成），两者都没有时插件静默降级、不影响聊天。
@@ -113,7 +119,8 @@ curl http://127.0.0.1:<port>/api/emotion-analyzer/v1/state
 
 ## 隐私
 
-- 只把**助手回复文本**送进本进程内的 ONNX 推理；不联网、不调用第三方模型 API。
+- 只把**助手回复文本**送进本进程内的 ONNX 推理；推理阶段不联网、不调用第三方模型 API。
+- 只有当用户主动下载模型时才会访问 HuggingFace（模型权重不随仓库分发）。
 - 会话日志中的插件记录只含分数、语言、长度、FNV-1a 文本 hash 与时间，**不含回复原文**。
 - 悬浮框趋势最多 30 轮（内存 + localStorage），不上传。
 

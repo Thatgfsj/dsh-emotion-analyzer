@@ -42,6 +42,10 @@ function fakeConnection(): { connection: ConnectionLike; routes: CapturedRoute[]
 const STATE: ModelStatePayload = {
   activeModelId: 'horizon-small',
   fallbackActive: true,
+  hasUsableModel: true,
+  effectiveModelId: 'legacy-tabularisai',
+  effectiveFallback: true,
+  runtimeError: null,
   provider: { type: 'local' },
   models: [
     {
@@ -57,7 +61,11 @@ const STATE: ModelStatePayload = {
       downloading: false,
       progress: { receivedBytes: 0, totalBytes: 0, percent: 0 },
       error: null,
+      errorCode: null,
       needsExport: false,
+      manual: false,
+      experimental: false,
+      installPath: null,
       default: true,
       recommended: false,
     },
